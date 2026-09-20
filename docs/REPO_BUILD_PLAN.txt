@@ -1,0 +1,461 @@
+================================================================================
+PLAN FOR BUILDING MultiscaleDynamics-for-AI
+A build order, with what goes in each file and what can be lifted from upstream.
+Written 2026-09-17. Makaha Morishita
+================================================================================
+
+WHAT WE ARE BUILDING
+  A Lorenz '96 test-bed for asking whether a pretrained chaotic-dynamics model
+  (PANDA) degrades on multiscale systems, with the averaging-theory closure as
+  the reference reduction.
+
+THE ORDERING PRINCIPLE
+  Build inward-out along the dependency graph, and put a *verification gate*
+  immediately after each layer that everything downstream depends on. Two gates
+  matter more than all the rest:
+
+    Gate A (Step 3): does my L96 right-hand side match the reference, exactly?
+    Gate B (Step 4): is my integration step small enough to resolve the fast ring?
+
+  Fail A and every number we ever produce is wrong. Fail B and every dataset
+  is quietly garbage while still looking plausible. Both are cheap to check and
+  brutal to discover late.
+
+TENTATIVE STRUCTURE
+  AI4Sci/
+  ├── external/
+  │   ├── EnsembleKalmanMethods/   github.com/EdoardoCalvello/EnsembleKalmanMethods
+  │   └── panda/                   github.com/abao1999/panda   (--depth=1)
+  └── MultiscaleDynamics-for-AI/   <- the repo
+
+  Papers we will need:
+    Calvello/Reich/Stuart, Acta Numerica 2025, Appendix B  (L96 + averaging)
+    Lai/Bao/Gilpin, ICLR 2026                              (PANDA)
+
+
+================================================================================
+FINAL STRUCTURE (tentative)
+================================================================================
+
+  MultiscaleDynamics-for-AI/
+  ├── pyproject.toml            package metadata, pins, pytest/ruff config
+  ├── environment.yml           conda alternative to the venv
+  ├── .gitignore                /data/ ANCHORED 
+  ├── README.md                 setup, what the first pass found
+  ├── PROVENANCE.txt            borrowed from paper vs original
+  ├── docs/
+  │   ├── PLAN.md               research plan, measured facts, PR roadmap
+  │   └── panda_notes.md        PANDA's hard constraints, cheat-sheet
+  ├── scripts/
+  │   ├── setup_env.sh          builds the venv; --local-only for conda users
+  │   └── generate_l96_data.py  the whole data pipeline
+  ├── notebooks/
+  │   ├── 01_l96_data_generation.ipynb
+  │   ├── 02_closure_fitting.ipynb
+  │   └── 03_panda_zeroshot.ipynb
+  ├── src/msdyn/
+  │   ├── systems/     l96.py, integrate.py          <- physics
+  │   ├── closures/    base.py, polynomial.py, gp.py, tabulated.py
+  │   ├── data/        io.py, generate.py            <- datasets + provenance
+  │   ├── diagnostics/ spectra.py, lyapunov.py, dimension.py
+  │   ├── models/      base.py, baselines.py, panda.py
+  │   └── evaluation/  metrics.py, protocol.py
+  ├── tests/           one per src subpackage
+  └── data/            GITIGNORED; regenerate, never commit (~390 MB)
+
+  split:
+  `systems` is physics with no ML in it
+  `models` is forecasting with no physics knowledge except through `systems`
+  `evaluation` knows about neither. That keeps the PANDA adapter swappable and stops the
+  harness from accidentally handing one forecaster information the others lack.
+
+
+================================================================================
+STEP 0 — ENVIRONMENT
+================================================================================
+FILES: ai4sci.yml, pyproject.toml
+
+pyproject.toml:
+  [build-system] setuptools; [project] name=msdyn, requires-python>=3.10
+  dependencies: numpy<2, scipy, scikit-learn, matplotlib
+  optional: panda=[torch, transformers==4.40.2, accelerate, safetensors]
+            dev=[pytest, ruff, ipykernel, jupyterlab]
+  [tool.setuptools.packages.find] where=["src"]
+  [tool.pytest.ini_options] markers: slow, panda
+  [tool.ruff] line-length=100
+
+setup conda env using yml:
+  conda env create -f _____.yml
+  conda activate <env>
+  pip install -e .
+
+  THE PINS AND WHY:
+    numpy<2              PANDA's deps are built against the 1.x ABI
+    transformers==4.40.2 pinned by PANDA; its PatchTST subclass tracks that API
+    tokenizers<0.20      required by transformers 4.40
+    huggingface_hub<0.26 0.26 removed APIs 4.40 still calls
+
+================================================================================
+STEP 1 — REPO SKELETON
+================================================================================
+FILES: .gitignore, empty __init__.py in every src/msdyn subpackage
+
+.gitignore must contain, with LEADING SLASHES:
+    /data/
+    /results/
+    /figures/
+    *.joblib
+    .venv/  __pycache__/  *.egg-info/  .pytest_cache/  .ipynb_checkpoints/
+    .DS_Store
+
+
+================================================================================
+STEP 2 — READ THE REFERENCE
+================================================================================
+READ: external/EnsembleKalmanMethods/Lorenz96/L96_multiscale.py
+      external/EnsembleKalmanMethods/Lorenz96/DATools_.py
+      external/EnsembleKalmanMethods/Lorenz96/data_gen.py
+
+The reference writes the RHS with explicit loops and hand-written boundary
+cases for k = 0, 1, K-1 and j = 0, J-2, J-1. Read those boundary cases
+carefully; they hide the one structural fact the whole vectorisation rests on:
+
+  * the slow variables form a cyclic ring of length K, and
+  * THE FAST VARIABLES FORM A SINGLE CYCLIC RING OF LENGTH K*J in the flat
+    index n = k*J + j. The wrap at j = J-1 goes to y_{k+1,0}, not back to
+    y_{k,0}.
+
+
+================================================================================
+STEP 3 — THE SYSTEM  [GATE A]
+================================================================================
+FILE: src/msdyn/systems/l96.py
+
+CONTENTS
+  L96Params        frozen dataclass: K=9, J=8, h_x=-0.8, h_y=1, F=10, eps=2^-7
+                   properties n_slow/n_fast/dim; .with_() for immutable edits;
+                   .as_dict() for metadata
+  split_state, join_state, average_fast, slow_block, fast_block
+  _ring_indices    lru_cached, writeable=False cyclic gather indices
+  slow_tendency    -x_{k-1}(x_{k-2}-x_{k+1}) - x_k + F   (shared by both models,
+                   so they can never drift apart)
+  L96Multiscale    __call__(t, z) -> dz; batch-aware over a leading ensemble
+                   axis; default_initial_state(seed, n_ensemble)
+  L96SingleScale   __call__(t, x) = slow_tendency + h_x * closure(x)
+
+COPY FROM UPSTREAM: the equations and Example B.1 parameters. Write the code
+ourself — theirs is loop-based and (dim, n_times); we want vectorised and
+time-first.
+
+TWO CONVENTIONS TO FIX NOW, GLOBALLY
+  1. Trajectories are TIME-FIRST (n_times, state_dim). The reference is the
+     transpose. Time-first is what every sequence model expects; transpose only
+     at the boundary with reference code.
+  2. Everything is BATCHED over a leading ensemble axis. These arrays are tiny
+     (81 floats), so NumPy call overhead dominates: 64 trajectories cost about
+     twice the wall-clock of one. Use precomputed index gathers, not np.roll
+     (np.roll allocates and concatenates every call; gathers were ~1.6x faster
+     single and ~30x per-trajectory when batched).
+
+GATE A — write tests/test_l96.py:
+  - import the reference L96M by path, assert max|ours - theirs| < 1e-12 over
+    random states, for 3 different (K, J, eps) combinations
+  - assert average_fast matches their compute_Yk
+  - assert L96SingleScale matches their .regressed() under the G0 predictor
+  - assert the fast ring wraps ACROSS the slow index (the Step 2 subtlety)
+  - assert cyclic equivariance of slow_tendency
+  - assert x_k = F is a fixed point when h_x = 0
+  Skip cleanly if external/ is absent.
+
+
+================================================================================
+STEP 4 — THE INTEGRATOR  [GATE B]
+================================================================================
+FILE: src/msdyn/systems/integrate.py
+
+CONTENTS
+  rk4_step, integrate_rk4(batch-aware, sample_every, blow-up detection),
+  integrate_scipy (error-controlled reference), suggested_dt,
+  self_convergence_error, check_integrator_agreement
+
+GATE B — THE STEP SIZE
+  Linear stability suggests dt < 2.78*eps ~ 2e-2. That is far too optimistic:
+  the fast subsystem's quadratic terms give |dy/dtau| ~ 60 on the attractor.
+  Calibrated answer:  dt = 5e-3 * eps   (3.9e-5 at eps = 2^-7).
+
+  AND: check it with RICHARDSON SELF-CONVERGENCE (|RK4(dt) - RK4(dt/2)|), never
+  by comparing long trajectories against an adaptive solver. The full system's
+  maximal Lyapunov exponent is ~53, so two EQUALLY CORRECT solutions separate
+  by O(1) within ~0.1 time units. A long-window comparison measures chaos, not
+  integration error. Keep the window under ~0.01. We should see clean order-4
+  behaviour (~16x error reduction per halving); I measured 20.6, 19.2, 17.5,
+  16.3, 16.2 across dt = 4e-4 .. 1.25e-5.
+
+  Test on a BURNT-IN state at a mild eps (2^-4) so tests stay fast; mark the
+  eps=2^-7 calibration check `slow`.
+
+
+================================================================================
+STEP 5 — CLOSURES
+================================================================================
+FILES: src/msdyn/closures/{base,polynomial,gp,tabulated}.py
+
+base.py       Closure Protocol; ClosurePairs NamedTuple (x, ybar) with
+              .subsample(); gather_closure_pairs(traj, params) pooling over
+              time AND ring position k (legitimate: the system is cyclically
+              symmetric, and it's what makes m a single scalar function)
+polynomial.py PolynomialClosure(degree=3) — the Wilks parameterisation; also
+              record residual_std, which is what a memoryless closure cannot
+              reach. LinearClosure(slope=h_y) = the analytic 'G0' predictor.
+gp.py         GaussianProcessClosure — the reference method. COPY THE
+              HYPERPARAMETERS from DATools_.py: RBF, length_scale=3, alpha=1,
+              800-point subsample, 15 restarts. alpha=1 is a strong nugget on
+              purpose: the scatter is genuinely thick and we want a
+              conditional mean, not an interpolant. Add predict_with_std.
+tabulated.py  TabulatedClosure — precompute on a grid, np.interp, LINEAR
+              extrapolation outside.
+
+  Need for tabulated.py:
+  a raw sklearn GP costs ~20 ms per call; the single-scale RHS calls the
+  closure 4x per RK4 step. 
+  To fix a correctness trap: a GP posterior mean REVERTS TO ITS ZERO
+  PRIOR far from training data, so an excursion off the attractor silently
+  switches the fast forcing off. Linear extrapolation from the endpoint slopes
+  instead, and expose fraction_outside() to report when it was used.
+
+tests/test_closures.py: recover known cubic coefficients from noisy samples;
+shape preservation; unfitted -> RuntimeError; GP uncertainty grows away from
+data; tabulated matches source inside the grid and extrapolates linearly.
+
+
+================================================================================
+STEP 6 — DATA FORMAT AND GENERATION
+================================================================================
+FILES: src/msdyn/data/io.py, src/msdyn/data/generate.py
+
+io.py     TrajectoryDataset frozen dataclass (trajectories (n,T,C), times,
+          params, kind, metadata) with .slow/.fast/.fast_average()/.describe();
+          save_dataset/load_dataset to .npz with a JSON metadata blob and a
+          SCHEMA_VERSION.
+          An L96 trajectory is uninterpretable
+          without eps, dt and the sampling stride, and the experiments compare
+          across exactly those axes. Store integrator, dt, sample_every,
+          t_burn, seed, closure name.
+
+generate.py  burn_in(); generate_multiscale(); generate_singlescale()
+
+  BURN-IN IS A MUST. The reference IC (each fast variable set equal to its
+  parent slow variable, slow ~ U[-5,10)) is far off the attractor with
+  |dy/dt| ~ 1e4 and will blow up a fixed-step integrator outright. 20 time
+  units is ample. Copy the IC convention from their data_gen.py; discard the
+  transient.
+
+  DECOUPLE THE TWO STEP SIZES. dt (integrator, 3.9e-5) is forced by the fast
+  ring; sample_dt (storage, ~0.015) is forced by PANDA's training density.
+  Factor of ~385. Conflating them is the easy mistake.
+
+  Single-scale runs are non-stiff 9-D systems: dt = 1e-3 is plenty, ~100x
+  cheaper per unit time.
+
+
+================================================================================
+STEP 7 — DIAGNOSTICS
+================================================================================
+FILES: src/msdyn/diagnostics/{spectra,lyapunov,dimension}.py
+
+spectra.py    power_spectrum (optional Blackman-Harris window),
+              dominant_period(method="centroid"|"peak"), points_per_period,
+              subsample_/resample_to_points_per_period,
+              PANDA_POINTS_PER_PERIOD = 4096/40 = 102.4
+
+  PANDA is NOT scale-free in time. Everything it trained on
+  was generated at ~102 samples per dominant period. Feeding it L96 at
+  dt = 0.001 is a distribution shift before we have changed any dynamics.
+  BUT "the dominant period" is ill-defined for broad-band chaos and the
+  estimator matters: on 8 dysts systems generated at a known 102.4, a naive
+  spectral-peak estimator returns 51-195 (it lands on harmonics) while an
+  amplitude-weighted centroid returns 63-113. Default to the centroid, borrow
+  the low-frequency floor convention from dysts' find_significant_frequencies,
+  and treat the EMPIRICAL DENSITY SWEEP as the real control, not the estimator.
+
+lyapunov.py   max_lyapunov_exponent via finite-difference Benettin (no
+              Jacobian needed, so it works for any fitted closure unchanged);
+              return the running estimate too, so we can see convergence.
+  t_renorm must be short compared with the FASTEST Lyapunov time: ~5*eps for
+  the multiscale system, ~0.1 for single-scale.
+  CRITICAL INTERPRETATION: the multiscale system's lambda_max is the FAST
+  ring's (~53 at eps=2^-7, scaling like 1/eps). It says nothing about
+  slow-variable predictability. The SINGLE-SCALE model's exponent (~0.8,
+  Lyapunov time ~1.26) is the yardstick for every forecast horizon we quote.
+
+dimension.py  correlation_dimension, Grassberger-Procaccia.
+  IMPLEMENT THE RECIPE FROM THE PANDA PAPER'S APPENDIX exactly (pairwise
+  distances -> keep the 5th-50th percentile window -> Clauset-Shalizi-Newman
+  power-law MLE), because the whole point is comparability with the number
+  they report for their own corpus (2.09 +/- 0.27 for founder systems).
+  Validate: my implementation gives 2.12 +/- 0.20 on ten of their systems.
+  DOCUMENT THE BIAS: it is monotonic but COMPRESSIVE — uniform d-cubes of true
+  dimension 1..6 read 1.61, 2.14, 2.60, 3.02, 3.39, 3.75. Near-unbiased at
+  D2~2 (where their corpus sits, so the comparison is fair) but any gap we
+  measure above that is a LOWER BOUND, and these are not absolute fractal
+  dimensions.
+
+
+================================================================================
+STEP 8 — THE DATA PIPELINE, THEN RUN IT
+================================================================================
+FILE: scripts/generate_l96_data.py
+
+  main():
+    parse args (--eps sweep, --n-trajectories 32, --t-total 60, --t-burn 20,
+                --sample-dt 0.015, --seed, --skip-lyapunov, --skip-existing)
+    1. multiscale sweep over eps -> l96_multiscale_eps<...>.npz
+    2. fit closures on the reference (smallest eps) run; TABULATE the GP;
+       save closure_gp.joblib + closure_pairs.npz
+    3. single-scale runs, one per closure -> l96_singlescale_<name>.npz
+    4. measure timescales (both scales!) -> timescales.json
+
+  Add --skip-existing early: step 1 is ~6 min and we will iterate on 2-4.
+  Consider a --quick mode; it is the only end-to-end exercise of the full
+  pipeline that tests do not cover.
+
+  RUN. Sanity-check what comes out:
+    slow dominant period ~1.54-1.58, ~96-118 pts/period at the default
+    lambda_max multiscale: 53.3, 22.1, 7.6, 1.70 across eps = 2^-7..2^-1
+    lambda_max single-scale: 0.80 (cubic) / 1.06 (GP) -> the closure choice
+      materially changes the reduced dynamics; that is a finding, not noise
+    cubic closure m(x) = 0.187 + 0.402x + 0.0042x^2 - 0.0017x^3,
+      residual_std 0.63 (~80% of ybar variance explained)
+
+
+================================================================================
+STEP 9 — MODELS
+================================================================================
+FILES: src/msdyn/models/{base,baselines,panda}.py
+
+base.py       Forecaster Protocol: forecast(context (n,ctx,C), horizon) ->
+              (n,horizon,C). Causal and stateless: window i may depend only on
+              context[i]. Plus validate_forecast() — call it in every impl.
+
+baselines.py  PersistenceForecaster, ClimatologyForecaster,
+              LinearAutoregressiveForecaster (VAR fitted ON THE CONTEXT WINDOW,
+              so it lives inside the same information budget),
+              ClosureModelForecaster (integrate the reduced model forward — the
+              PHYSICS baseline and the scientifically interesting one),
+              PerfectModelForecaster (full state; the skill ceiling, not a fair
+              competitor).
+              State the asymmetry loudly: the closure model knows F, h_x and
+              the ring topology exactly; PANDA knows nothing.
+
+panda.py      PandaForecaster.
+  Import PatchTSTForPrediction DIRECTLY from panda.patchtst.patchtst; do NOT
+  use their PatchTSTPipeline. Its module imports panda.utils, whose __init__
+  pulls dysts and gluonts for dataset plumbing we do not need. Reimplement
+  the ~30-line rollout ourself (generate -> median over the sample axis ->
+  append -> slide) — we want explicit control of the sliding-context policy
+  anyway, since it is a variable to ablate.
+
+  HARD CONSTRAINTS TO ENFORCE:
+    context length EXACTLY 512 — the head is a flatten-linear over a fixed
+      patch count, so short context is a SHAPE ERROR, not a quality loss.
+      Raise, do not pad: padding is itself a distribution shift.
+    prediction_length 128 per forward pass; longer = autoregressive rollout,
+      which the paper reports degrades. Expose rollout_chunks().
+    instance normalisation is INTERNAL (scaling="std"). Do not standardise
+      inputs ourself — we would normalise twice.
+    device auto-select cuda -> mps -> cpu.
+
+  VALIDATE THE ADAPTER BEFORE TRUSTING ANY L96 NUMBER. Generate a PANDA
+  held-out system with dysts at their own density (4096 steps / 40 periods) and
+  check we land near their published numbers. I get QiChen sMAPE 24.7 against
+  their reported IQR [18.5, 39.3] at 128 steps.
+
+
+================================================================================
+STEP 10 — EVALUATION
+================================================================================
+FILES: src/msdyn/evaluation/{metrics,protocol}.py
+
+metrics.py   TWO FAMILIES, and the distinction matters here more than usual:
+             WEATHER (short horizon, pointwise): smape (0-200 convention, to
+               match the paper), mae, rmse, error_vs_lead_time,
+               valid_prediction_time (normalised by climatological std,
+               threshold 0.3)
+             CLIMATE (long horizon, distributional): invariant_measure_kl,
+               spectral_hellinger
+             PANDA is explicitly a weather model and is documented to regress
+             to the mean at long horizons.
+
+protocol.py  EvaluationWindows (context, target, dt, climatology_std,
+             lyapunov_time) with .select_channels() and .lead_times_lyapunov;
+             make_windows(); evaluate_forecaster(); compare_forecasters();
+             to_dataframe().
+             Default stride = horizon so targets do not overlap — overlapping
+             targets correlate the errors we are averaging and inflate
+             apparent confidence.
+             TRAP: np.atleast_3d APPENDS an axis, so a single (T, C)
+             trajectory silently becomes (T, C, 1) = "T trajectories of C
+             timesteps". Handle ndim==2 explicitly and reject anything else.
+
+================================================================================
+STEP 11 — RUN THE EXPERIMENT
+================================================================================
+  1. adapter validation on dysts held-out systems (Step 9)  <- gate
+  2. single-scale L96 vs all baselines
+  3. multiscale L96 slow variables, identical window geometry
+  4. controls, BEFORE concluding anything: sampling-density sweep, channel-count
+     sweep, eps sweep
+  5. only then, interpretation
+
+What I found, so we know whether we are reproducing or diverging:
+  PANDA VPT 0.13 slow Lyapunov times; ~3x persistence (0.04) but slightly WORSE
+  than a linear AR fit on the context window (0.16). Flat across a 64x eps
+  sweep (0.128 -> 0.141) and a 4x density sweep. Identical single-scale vs
+  multiscale (0.129 vs 0.128). Closure model reaches 1.38 on multiscale.
+  => scale separation is NOT what limits it in this regime; dimension is the
+     live hypothesis (L96 slow D2 = 3.41 vs their corpus 2.09 +/- 0.27).
+
+
+================================================================================
+STEP 12 — NOTEBOOKS
+================================================================================
+  01_l96_data_generation  reference equivalence; the dt convergence table; the
+                          Appendix-B.1 figure; the two timescales; sampling
+                          density; what the eps sweep does to slow statistics
+  02_closure_fitting      the (x_k, ybar_k) scatter with GP/cubic/linear fits;
+                          the residual and ITS AUTOCORRELATION; does the
+                          reduced model have the right climate (invariant
+                          measure + spectrum); the slow Lyapunov time
+  03_panda_zeroshot       adapter validation FIRST; single-scale vs multiscale
+                          vs baselines; error-vs-lead-time curves; the controls;
+                          the eps sweep
+
+================================================================================
+STEP 13 — DOCS AND PACKAGING
+================================================================================
+  README.md         setup, generate, notebook table, package layout, the two
+                    array conventions, attribution, what the first pass found
+  docs/PLAN.md      the question; MEASURED properties (not assumed); first
+                    results; PR roadmap; "things that will bite"
+  docs/panda_notes.md  checkpoint config table, the hard constraints, the
+                    dependency-light import recipe, measured load/inference times
+  PROVENANCE.txt    borrowed vs original, file by file
+  environment.yml   conda environment setup
+
+
+================================================================================
+WRITING ORDER
+================================================================================
+   1  pyproject.toml + scripts/setup_env.sh      env before code
+   2  .gitignore (/data/ anchored) + __init__.py
+   3  systems/l96.py        + tests/test_l96.py            [GATE A]
+   4  systems/integrate.py  + integrator tests             [GATE B]
+   5  closures/base.py, polynomial.py, gp.py, tabulated.py + tests
+   6  data/io.py, data/generate.py
+   7  diagnostics/spectra.py, lyapunov.py, dimension.py    + tests
+   8  scripts/generate_l96_data.py               -> RUN (~7 min)
+   9  models/base.py, baselines.py, panda.py     -> validate on dysts
+  10  evaluation/metrics.py, protocol.py         + tests
+  11  run the experiment + controls
+  12  notebooks 01, 02, 03                       -> execute, commit outputs
+  13  README, docs/PLAN.md, docs/panda_notes.md, PROVENANCE.txt, environment.yml
