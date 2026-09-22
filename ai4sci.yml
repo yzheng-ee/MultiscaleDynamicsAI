@@ -1,0 +1,46 @@
+name: ai4sci
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.12
+  - pip
+
+  - pip:
+      # --- scientific base (PyPI wheels, so one OpenMP runtime) ---
+      - numpy<2
+      - scipy>=1.11
+      - scikit-learn>=1.3
+      - matplotlib>=3.7
+      - pandas>=2.0
+      - joblib>=1.3
+      - statsmodels>=0.14
+      - tqdm
+      - pyyaml
+
+      # --- PANDA inference stack (pins explained above) ---
+      - torch==2.14.*
+      - transformers==4.40.2
+      - tokenizers>=0.19,<0.20
+      - huggingface_hub>=0.19,<0.26
+      - safetensors>=0.4
+      - accelerate
+
+      # Imported by panda.utils on the way to the model classes.
+      - gluonts[arrow]
+      - hydra-core
+      - einops
+      - orjson
+
+      # Needed to generate PANDA's own held-out systems, which is how we check
+      # the adapter reproduces published numbers before trusting any L96 result.
+      - dysts @ git+https://github.com/williamgilpin/dysts@master
+
+      # --- notebooks, tests, tooling ---
+      - jupyterlab
+      - ipykernel
+      - ipywidgets
+      - pytest>=7
+      - ruff>=0.5
+      - pypdf
