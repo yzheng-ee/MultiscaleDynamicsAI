@@ -1,0 +1,21 @@
+# Generated data and model outputs -- regenerate with scripts/generate_l96_data.py
+# Leading slashes matter: an unanchored `data/` would also swallow src/msdyn/data/.
+/data/
+/results/
+/figures/
+*.joblib
+
+# Environments
+.venv/
+venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# macOS / iCloud
+.DS_Store
+._*
