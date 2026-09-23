@@ -9,11 +9,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.data.lorenz96.generate import DEFAULT_DATASETS, generate_lorenz96_data
+from src.data.lorenz96.generate import generate_lorenz96_data
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
+
+    # Model parameters define the dimensions, forcing, and slow-fast coupling.
     parser.add_argument("--K", type=int, default=9, help="number of slow variables")
     parser.add_argument("--J", type=int, default=8, help="fast variables per slow variable")
     parser.add_argument("--hx", type=float, default=-0.8)
@@ -21,56 +23,49 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--forcing", type=float, default=10.0)
     parser.add_argument("--epsilon", type=float, default=2**-7)
     parser.add_argument("--k0", type=int, default=0)
+
+    # Initial-condition and reproducibility parameters control initialization and randomness.
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--initial-min", type=float, default=-5.0)
     parser.add_argument("--initial-max", type=float, default=10.0)
+
+    # Integration and sampling parameters control trajectory lengths and ODE stepping.
     parser.add_argument("--spinup-duration", type=float, default=50.0)
     parser.add_argument("--learning-duration", type=float, default=300.0)
     parser.add_argument("--dynamics-duration", type=float, default=50.0)
-    parser.add_argument("--inversion-duration", type=float, default=100.0)
     parser.add_argument("--tau", type=float, default=0.001)
     parser.add_argument("--dynamics-max-step", type=float, default=0.001)
     parser.add_argument("--spinup-max-step", type=float, default=0.01)
     parser.add_argument("--solver-method", default="RK45")
-    parser.add_argument("--small-process-noise", type=float, default=0.001)
-    parser.add_argument("--small-observation-noise", type=float, default=0.001)
-    parser.add_argument("--large-process-noise", type=float, default=0.1)
-    parser.add_argument("--large-observation-noise", type=float, default=0.1)
-    parser.add_argument(
-        "--observation-indices", type=int, nargs="+", default=[0, 1, 3, 4, 6, 7]
-    )
+
+    # Noise parameters set optional state and observation perturbation scales.
+    parser.add_argument("--process-noise", type=float, default=0.0)
+    parser.add_argument("--observation-noise", type=float, default=0.0)
+
+    # Observation parameters select the measured slow-variable components.
+    parser.add_argument("--observation-indices", type=int, nargs="+", default=[0, 1, 3, 4, 6, 7])
+
+    # Closure-input parameters define the periodic slow-variable stencil.
     parser.add_argument("--stencil-left", type=int, default=0)
     parser.add_argument("--stencil-right", type=int, default=0)
+
+    # Gaussian-process parameters control closure sampling, kernels, and optimization.
     parser.add_argument("--closure-sample-size", type=int, default=800)
     parser.add_argument("--closure-kernel", choices=("rbf", "matern"), default="rbf")
     parser.add_argument("--closure-length-scale", type=float, default=3.0)
-    parser.add_argument(
-        "--closure-rbf-bounds", type=float, nargs=2, default=(1e-10, 1e6)
-    )
+    parser.add_argument("--closure-rbf-bounds", type=float, nargs=2, default=(1e-10, 1e6))
     parser.add_argument("--closure-matern-nu", type=float, default=1.5)
     parser.add_argument("--closure-alpha", type=float, default=1.0)
     parser.add_argument("--closure-optimizer-restarts", type=int, default=15)
     parser.add_argument("--closure-random-state", type=int)
+
+    # Output parameters control the destination directory and artifact filenames.
     parser.add_argument("--output-dir", type=Path, default=Path("."))
     parser.add_argument("--closure-filename", default="closure.joblib")
-    parser.add_argument(
-        "--single-small-filename", default="simulation_data_singlescale_001.npz"
-    )
-    parser.add_argument(
-        "--single-large-filename", default="simulation_data_singlescale_1.npz"
-    )
-    parser.add_argument(
-        "--multiscale-filename", default="simulation_data_multiscale_001.npz"
-    )
-    parser.add_argument(
-        "--inversion-filename", default="simulation_data_singlescale_inversion.npz"
-    )
-    parser.add_argument(
-        "--datasets",
-        nargs="+",
-        choices=DEFAULT_DATASETS,
-        default=list(DEFAULT_DATASETS),
-    )
+    parser.add_argument("--single-scale-filename", default="simulation_data_singlescale.npz")
+    parser.add_argument("--multiscale-filename", default="simulation_data_multiscale.npz")
+
+    # Closure-reuse parameters optionally load an existing fit instead of training one.
     parser.add_argument("--skip-closure-training", action="store_true")
     parser.add_argument("--closure-path", type=Path)
     return parser
@@ -92,15 +87,12 @@ def main() -> None:
         spinup_duration=args.spinup_duration,
         learning_duration=args.learning_duration,
         dynamics_duration=args.dynamics_duration,
-        inversion_duration=args.inversion_duration,
         tau=args.tau,
         dynamics_max_step=args.dynamics_max_step,
         spinup_max_step=args.spinup_max_step,
         solver_method=args.solver_method,
-        small_process_noise=args.small_process_noise,
-        small_observation_noise=args.small_observation_noise,
-        large_process_noise=args.large_process_noise,
-        large_observation_noise=args.large_observation_noise,
+        process_noise=args.process_noise,
+        observation_noise=args.observation_noise,
         observation_indices=args.observation_indices,
         stencil_left=args.stencil_left,
         stencil_right=args.stencil_right,
@@ -114,11 +106,8 @@ def main() -> None:
         closure_random_state=args.closure_random_state,
         output_dir=args.output_dir,
         closure_filename=args.closure_filename,
-        single_small_filename=args.single_small_filename,
-        single_large_filename=args.single_large_filename,
+        single_scale_filename=args.single_scale_filename,
         multiscale_filename=args.multiscale_filename,
-        inversion_filename=args.inversion_filename,
-        datasets=args.datasets,
         train_closure=not args.skip_closure_training,
         closure_path=args.closure_path,
     )
