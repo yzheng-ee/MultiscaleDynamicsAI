@@ -1,0 +1,22 @@
+# Local project directories
+/literature/
+/proposal/
+/data/
+/outputs/
+
+# PyCharm
+.idea/
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Local environment variables
+.env

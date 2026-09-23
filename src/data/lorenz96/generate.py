@@ -16,14 +16,14 @@ def _sample_count(duration: float, sampling_interval: float) -> int:
     return np.arange(0, duration, sampling_interval).shape[0]
 
 
-def _resolve_integration_max_step(
-    sampling_interval: float, integration_max_step: float | None
+def _resolve_dynamics_max_step(
+    sampling_interval: float, dynamics_max_step: float | None
 ) -> float:
-    if integration_max_step is None:
+    if dynamics_max_step is None:
         return sampling_interval
-    if integration_max_step <= 0:
-        raise ValueError("integration_max_step must be positive")
-    return integration_max_step
+    if dynamics_max_step <= 0:
+        raise ValueError("dynamics_max_step must be positive")
+    return dynamics_max_step
 
 
 def _validate_process_noise(process_noise: float) -> None:
@@ -36,15 +36,15 @@ def generate_single_scale_data(
     initial_state: NDArray[np.float64],
     duration: float = 50.0,
     sampling_interval: float = 0.001,
-    integration_max_step: float | None = None,
+    dynamics_max_step: float | None = None,
     process_noise: float = 0.0,
     solver_method: str = "RK45",
 ) -> NDArray[np.float64]:
     """Generate a trajectory from the reduced model."""
     _validate_process_noise(process_noise)
     n_samples = _sample_count(duration, sampling_interval)
-    integration_max_step = _resolve_integration_max_step(
-        sampling_interval, integration_max_step
+    dynamics_max_step = _resolve_dynamics_max_step(
+        sampling_interval, dynamics_max_step
     )
     states = np.zeros((model.K, n_samples))
     states[:, 0] = initial_state[: model.K]
@@ -55,7 +55,7 @@ def generate_single_scale_data(
             [0, sampling_interval],
             states[:, n],
             method=solver_method,
-            max_step=integration_max_step,
+            max_step=dynamics_max_step,
         )
         states[:, n + 1] = solution.y[:, -1]
         if process_noise > 0:
@@ -70,15 +70,15 @@ def generate_multiscale_data(
     initial_state: NDArray[np.float64],
     duration: float = 50.0,
     sampling_interval: float = 0.001,
-    integration_max_step: float | None = None,
+    dynamics_max_step: float | None = None,
     process_noise: float = 0.0,
     solver_method: str = "RK45",
 ) -> NDArray[np.float64]:
     """Generate a full multiscale trajectory."""
     _validate_process_noise(process_noise)
     n_samples = _sample_count(duration, sampling_interval)
-    integration_max_step = _resolve_integration_max_step(
-        sampling_interval, integration_max_step
+    dynamics_max_step = _resolve_dynamics_max_step(
+        sampling_interval, dynamics_max_step
     )
     state_dimension = model.K + model.K * model.J
     states = np.zeros((state_dimension, n_samples))
@@ -90,7 +90,7 @@ def generate_multiscale_data(
             [0, sampling_interval],
             states[:, n],
             method=solver_method,
-            max_step=integration_max_step,
+            max_step=dynamics_max_step,
         )
         states[:, n + 1] = solution.y[:, -1]
         if process_noise > 0:
@@ -108,7 +108,6 @@ def generate_lorenz96_data(
     hy: float = 1.0,
     F: float = 10.0,
     eps: float = 2**-7,
-    k0: int = 0,
     seed: int = 42,
     initial_min: float = -5.0,
     initial_max: float = 10.0,
@@ -116,7 +115,7 @@ def generate_lorenz96_data(
     learning_duration: float = 300.0,
     dynamics_duration: float = 50.0,
     sampling_interval: float = 0.001,
-    integration_max_step: float | None = None,
+    dynamics_max_step: float | None = None,
     learning_max_step: float = 0.001,
     spinup_max_step: float = 0.01,
     solver_method: str = "RK45",
@@ -144,14 +143,14 @@ def generate_lorenz96_data(
     if learning_max_step <= 0 or spinup_max_step <= 0:
         raise ValueError("maximum solver steps must be positive")
     _sample_count(dynamics_duration, sampling_interval)
-    integration_max_step = _resolve_integration_max_step(
-        sampling_interval, integration_max_step
+    dynamics_max_step = _resolve_dynamics_max_step(
+        sampling_interval, dynamics_max_step
     )
     _validate_process_noise(process_noise)
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    model = L96M(K=K, J=J, hx=hx, hy=hy, F=F, eps=eps, k0=k0)
+    model = L96M(K=K, J=J, hx=hx, hy=hy, F=F, eps=eps)
     model.set_stencil(stencil_left, stencil_right)
     np.random.seed(seed)
 
@@ -208,7 +207,7 @@ def generate_lorenz96_data(
         initial_state=generation_initial_state,
         duration=dynamics_duration,
         sampling_interval=sampling_interval,
-        integration_max_step=integration_max_step,
+        dynamics_max_step=dynamics_max_step,
         process_noise=process_noise,
         solver_method=solver_method,
     )
@@ -221,7 +220,7 @@ def generate_lorenz96_data(
         initial_state=generation_initial_state,
         duration=dynamics_duration,
         sampling_interval=sampling_interval,
-        integration_max_step=integration_max_step,
+        dynamics_max_step=dynamics_max_step,
         process_noise=process_noise,
         solver_method=solver_method,
     )

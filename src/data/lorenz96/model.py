@@ -17,7 +17,6 @@ class L96M:
         hy: float = 1.0,
         F: float = 10.0,
         eps: float = 2**-7,
-        k0: int = 0,
     ) -> None:
         if K < 4:
             raise ValueError("K must be at least 4")
@@ -32,7 +31,6 @@ class L96M:
         self.hy = hy
         self.F = F
         self.eps = eps
-        self.k0 = k0
         self.predictor: Callable[[NDArray[np.float64]], NDArray[np.float64]] | None = None
         self.stencil = np.array([0], dtype=int)
 
@@ -194,16 +192,6 @@ class L96M:
             stop = self.K * (j + 1)
             pairs[start:stop, :-1] = self.apply_stencil(time_series[: self.K, j])
             pairs[start:stop, -1] = self.compute_Yk(time_series[:, j])
-        return pairs
-
-    def gather_pairs_k0(
-        self, time_series: NDArray[np.float64]
-    ) -> NDArray[np.float64]:
-        n_times = time_series.shape[1]
-        pairs = np.empty((n_times, 2))
-        for j in range(n_times):
-            pairs[j, 0] = time_series[self.k0, j]
-            pairs[j, 1] = time_series[self.K :, j].sum() / self.J
         return pairs
 
     def apply_stencil(self, slow: NDArray[np.float64]) -> NDArray[np.float64]:

@@ -22,7 +22,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hy", type=float, default=1.0)
     parser.add_argument("--forcing", type=float, default=10.0)
     parser.add_argument("--epsilon", type=float, default=2**-7)
-    parser.add_argument("--k0", type=int, default=0)
 
     # Initial-condition and reproducibility parameters control initialization and randomness.
     parser.add_argument("--seed", type=int, default=42)
@@ -34,7 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--learning-duration", type=float, default=300.0)
     parser.add_argument("--dynamics-duration", type=float, default=50.0)
     parser.add_argument("--sampling-interval", type=float, default=0.001)
-    parser.add_argument("--integration-max-step", type=float)
+    parser.add_argument("--dynamics-max-step", type=float, default=None)  # None uses sampling_interval.
     parser.add_argument("--learning-max-step", type=float, default=0.001)
     parser.add_argument("--spinup-max-step", type=float, default=0.01)
     parser.add_argument("--solver-method", default="RK45")
@@ -54,7 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--closure-matern-nu", type=float, default=1.5)
     parser.add_argument("--closure-alpha", type=float, default=1.0)
     parser.add_argument("--closure-optimizer-restarts", type=int, default=15)
-    parser.add_argument("--closure-random-state", type=int)
+    parser.add_argument("--closure-random-state", type=int, default=None)
 
     # Output parameters control the destination directory and artifact filenames.
     parser.add_argument("--output-dir", type=Path, default=Path("."))
@@ -64,7 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Closure-reuse parameters optionally load an existing fit instead of training one.
     parser.add_argument("--skip-closure-training", action="store_true")
-    parser.add_argument("--closure-path", type=Path)
+    parser.add_argument("--closure-path", type=Path, default=None)
     return parser
 
 
@@ -77,7 +76,6 @@ def main() -> None:
         hy=args.hy,
         F=args.forcing,
         eps=args.epsilon,
-        k0=args.k0,
         seed=args.seed,
         initial_min=args.initial_min,
         initial_max=args.initial_max,
@@ -85,7 +83,7 @@ def main() -> None:
         learning_duration=args.learning_duration,
         dynamics_duration=args.dynamics_duration,
         sampling_interval=args.sampling_interval,
-        integration_max_step=args.integration_max_step,
+        dynamics_max_step=args.dynamics_max_step,
         learning_max_step=args.learning_max_step,
         spinup_max_step=args.spinup_max_step,
         solver_method=args.solver_method,
