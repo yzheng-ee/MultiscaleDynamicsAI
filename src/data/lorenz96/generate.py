@@ -1,6 +1,5 @@
 """Generate datasets from the multiscale and learned Lorenz-96 models."""
 
-from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -11,101 +10,94 @@ from .closure import fit_closure, load_closure
 from .model import L96M
 
 
-def _sample_count(duration: float, tau: float) -> int:
-    if duration <= 0 or tau <= 0:
-        raise ValueError("durations and tau must be positive")
-    return np.arange(0, duration, tau).shape[0]
+def _sample_count(duration: float, sampling_interval: float) -> int:
+    if duration <= 0 or sampling_interval <= 0:
+        raise ValueError("duration and sampling_interval must be positive")
+    return np.arange(0, duration, sampling_interval).shape[0]
 
 
-def _validate_observation_indices(indices: Sequence[int], K: int) -> None:
-    if not indices:
-        raise ValueError("at least one observation index is required")
-    if any(index < 0 or index >= K for index in indices):
-        raise ValueError(f"observation indices must be between 0 and {K - 1}")
+def _resolve_integration_max_step(
+    sampling_interval: float, integration_max_step: float | None
+) -> float:
+    if integration_max_step is None:
+        return sampling_interval
+    if integration_max_step <= 0:
+        raise ValueError("integration_max_step must be positive")
+    return integration_max_step
 
 
-def _validate_noise(process_noise: float, observation_noise: float) -> None:
-    if process_noise < 0 or observation_noise < 0:
-        raise ValueError("noise standard deviations must be nonnegative")
+def _validate_process_noise(process_noise: float) -> None:
+    if process_noise < 0:
+        raise ValueError("process_noise must be nonnegative")
 
 
 def generate_single_scale_data(
     model: L96M,
     initial_state: NDArray[np.float64],
     duration: float = 50.0,
-    tau: float = 0.001,
+    sampling_interval: float = 0.001,
+    integration_max_step: float | None = None,
     process_noise: float = 0.0,
-    observation_noise: float = 0.0,
-    observation_indices: Sequence[int] = (0, 1, 3, 4, 6, 7),
     solver_method: str = "RK45",
-) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    """Generate a trajectory and observations from the reduced model."""
-    _validate_observation_indices(observation_indices, model.K)
-    _validate_noise(process_noise, observation_noise)
-    n_samples = _sample_count(duration, tau)
+) -> NDArray[np.float64]:
+    """Generate a trajectory from the reduced model."""
+    _validate_process_noise(process_noise)
+    n_samples = _sample_count(duration, sampling_interval)
+    integration_max_step = _resolve_integration_max_step(
+        sampling_interval, integration_max_step
+    )
     states = np.zeros((model.K, n_samples))
-    observations = np.zeros((len(observation_indices), n_samples))
     states[:, 0] = initial_state[: model.K]
 
     for n in range(n_samples - 1):
         solution = solve_ivp(
             model.regressed,
-            [0, tau],
+            [0, sampling_interval],
             states[:, n],
             method=solver_method,
-            max_step=tau,
+            max_step=integration_max_step,
         )
         states[:, n + 1] = solution.y[:, -1]
         if process_noise > 0:
             states[:, n + 1] += np.random.normal(
                 0, process_noise, size=solution.y.shape[0]
             )
-        observations[:, n + 1] = states[list(observation_indices), n + 1]
-        if observation_noise > 0:
-            observations[:, n + 1] += np.random.normal(
-                0, observation_noise, size=len(observation_indices)
-            )
-    return states, observations
+    return states
 
 
 def generate_multiscale_data(
     model: L96M,
     initial_state: NDArray[np.float64],
     duration: float = 50.0,
-    tau: float = 0.001,
+    sampling_interval: float = 0.001,
+    integration_max_step: float | None = None,
     process_noise: float = 0.0,
-    observation_noise: float = 0.0,
-    observation_indices: Sequence[int] = (0, 1, 3, 4, 6, 7),
     solver_method: str = "RK45",
-) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    """Generate a full multiscale trajectory and slow observations."""
-    _validate_observation_indices(observation_indices, model.K)
-    _validate_noise(process_noise, observation_noise)
-    n_samples = _sample_count(duration, tau)
+) -> NDArray[np.float64]:
+    """Generate a full multiscale trajectory."""
+    _validate_process_noise(process_noise)
+    n_samples = _sample_count(duration, sampling_interval)
+    integration_max_step = _resolve_integration_max_step(
+        sampling_interval, integration_max_step
+    )
     state_dimension = model.K + model.K * model.J
     states = np.zeros((state_dimension, n_samples))
-    observations = np.zeros((len(observation_indices), n_samples))
     states[:, 0] = initial_state
 
     for n in range(n_samples - 1):
         solution = solve_ivp(
             model,
-            [0, tau],
+            [0, sampling_interval],
             states[:, n],
             method=solver_method,
-            max_step=tau,
+            max_step=integration_max_step,
         )
         states[:, n + 1] = solution.y[:, -1]
         if process_noise > 0:
             states[:, n + 1] += np.random.normal(
                 0, process_noise, size=solution.y.shape[0]
             )
-        observations[:, n + 1] = states[list(observation_indices), n + 1]
-        if observation_noise > 0:
-            observations[:, n + 1] += np.random.normal(
-                0, observation_noise, size=len(observation_indices)
-            )
-    return states, observations
+    return states
 
 
 def generate_lorenz96_data(
@@ -123,13 +115,12 @@ def generate_lorenz96_data(
     spinup_duration: float = 50.0,
     learning_duration: float = 300.0,
     dynamics_duration: float = 50.0,
-    tau: float = 0.001,
-    dynamics_max_step: float = 0.001,
+    sampling_interval: float = 0.001,
+    integration_max_step: float | None = None,
+    learning_max_step: float = 0.001,
     spinup_max_step: float = 0.01,
     solver_method: str = "RK45",
     process_noise: float = 0.0,
-    observation_noise: float = 0.0,
-    observation_indices: Sequence[int] = (0, 1, 3, 4, 6, 7),
     stencil_left: int = 0,
     stencil_right: int = 0,
     closure_sample_size: int = 800,
@@ -150,15 +141,18 @@ def generate_lorenz96_data(
     """Run the Lorenz-96 data-generation pipeline and return written paths."""
     if initial_max <= initial_min:
         raise ValueError("initial_max must be greater than initial_min")
-    if dynamics_max_step <= 0 or spinup_max_step <= 0:
+    if learning_max_step <= 0 or spinup_max_step <= 0:
         raise ValueError("maximum solver steps must be positive")
-    _validate_noise(process_noise, observation_noise)
+    _sample_count(dynamics_duration, sampling_interval)
+    integration_max_step = _resolve_integration_max_step(
+        sampling_interval, integration_max_step
+    )
+    _validate_process_noise(process_noise)
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     model = L96M(K=K, J=J, hx=hx, hy=hy, F=F, eps=eps, k0=k0)
     model.set_stencil(stencil_left, stencil_right)
-    _validate_observation_indices(observation_indices, K)
     np.random.seed(seed)
 
     initial_state = np.empty(K + K * J)
@@ -183,7 +177,7 @@ def generate_lorenz96_data(
             [0, learning_duration],
             spun_up_state,
             method=solver_method,
-            max_step=dynamics_max_step,
+            max_step=learning_max_step,
         )
         generation_initial_state = learning.y[:, -1]
         pairs = model.gather_pairs(learning.y)
@@ -209,40 +203,30 @@ def generate_lorenz96_data(
 
     model.set_predictor(regressor.predict)
 
-    single_states, single_observations = generate_single_scale_data(
-        model,
-        generation_initial_state,
-        dynamics_duration,
-        tau,
-        process_noise,
-        observation_noise,
-        observation_indices,
-        solver_method,
+    single_states = generate_single_scale_data(
+        model=model,
+        initial_state=generation_initial_state,
+        duration=dynamics_duration,
+        sampling_interval=sampling_interval,
+        integration_max_step=integration_max_step,
+        process_noise=process_noise,
+        solver_method=solver_method,
     )
     single_scale_path = output_dir / single_scale_filename
-    np.savez(
-        single_scale_path,
-        states=single_states,
-        observations=single_observations,
-    )
+    np.savez(single_scale_path, states=single_states)
     written["single-scale"] = single_scale_path
 
-    multiscale_states, multiscale_observations = generate_multiscale_data(
-        model,
-        generation_initial_state,
-        dynamics_duration,
-        tau,
-        process_noise,
-        observation_noise,
-        observation_indices,
-        solver_method,
+    multiscale_states = generate_multiscale_data(
+        model=model,
+        initial_state=generation_initial_state,
+        duration=dynamics_duration,
+        sampling_interval=sampling_interval,
+        integration_max_step=integration_max_step,
+        process_noise=process_noise,
+        solver_method=solver_method,
     )
     multiscale_path = output_dir / multiscale_filename
-    np.savez(
-        multiscale_path,
-        states=multiscale_states,
-        observations=multiscale_observations,
-    )
+    np.savez(multiscale_path, states=multiscale_states)
     written["multiscale"] = multiscale_path
 
     return written

@@ -33,17 +33,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--spinup-duration", type=float, default=50.0)
     parser.add_argument("--learning-duration", type=float, default=300.0)
     parser.add_argument("--dynamics-duration", type=float, default=50.0)
-    parser.add_argument("--tau", type=float, default=0.001)
-    parser.add_argument("--dynamics-max-step", type=float, default=0.001)
+    parser.add_argument("--sampling-interval", type=float, default=0.001)
+    parser.add_argument("--integration-max-step", type=float)
+    parser.add_argument("--learning-max-step", type=float, default=0.001)
     parser.add_argument("--spinup-max-step", type=float, default=0.01)
     parser.add_argument("--solver-method", default="RK45")
 
-    # Noise parameters set optional state and observation perturbation scales.
+    # Noise parameters set optional state perturbation scales.
     parser.add_argument("--process-noise", type=float, default=0.0)
-    parser.add_argument("--observation-noise", type=float, default=0.0)
-
-    # Observation parameters select the measured slow-variable components.
-    parser.add_argument("--observation-indices", type=int, nargs="+", default=[0, 1, 3, 4, 6, 7])
 
     # Closure-input parameters define the periodic slow-variable stencil.
     parser.add_argument("--stencil-left", type=int, default=0)
@@ -87,13 +84,12 @@ def main() -> None:
         spinup_duration=args.spinup_duration,
         learning_duration=args.learning_duration,
         dynamics_duration=args.dynamics_duration,
-        tau=args.tau,
-        dynamics_max_step=args.dynamics_max_step,
+        sampling_interval=args.sampling_interval,
+        integration_max_step=args.integration_max_step,
+        learning_max_step=args.learning_max_step,
         spinup_max_step=args.spinup_max_step,
         solver_method=args.solver_method,
         process_noise=args.process_noise,
-        observation_noise=args.observation_noise,
-        observation_indices=args.observation_indices,
         stencil_left=args.stencil_left,
         stencil_right=args.stencil_right,
         closure_sample_size=args.closure_sample_size,
