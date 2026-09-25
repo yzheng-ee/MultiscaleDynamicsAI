@@ -31,9 +31,12 @@ def build_parser() -> argparse.ArgumentParser:
     # Integration and sampling parameters control trajectory lengths and ODE stepping.
     parser.add_argument("--spinup-duration", type=float, default=50.0)
     parser.add_argument("--learning-duration", type=float, default=300.0)
-    parser.add_argument("--dynamics-duration", type=float, default=50.0)
-    parser.add_argument("--sampling-interval", type=float, default=0.001)
-    parser.add_argument("--dynamics-max-step", type=float, default=None)  # None uses sampling_interval.
+    parser.add_argument("--single-scale-dynamics-duration", type=float, default=50.0)
+    parser.add_argument("--multiscale-dynamics-duration", type=float, default=50.0)
+    parser.add_argument("--single-scale-sampling-interval", type=float, default=0.001)
+    parser.add_argument("--multiscale-sampling-interval", type=float, default=0.001)
+    parser.add_argument("--single-scale-dynamics-max-step", type=float, default=None)
+    parser.add_argument("--multiscale-dynamics-max-step", type=float, default=None)
     parser.add_argument("--learning-max-step", type=float, default=0.001)
     parser.add_argument("--spinup-max-step", type=float, default=0.01)
     parser.add_argument("--solver-method", default="RK45")
@@ -81,9 +84,12 @@ def main() -> None:
         initial_max=args.initial_max,
         spinup_duration=args.spinup_duration,
         learning_duration=args.learning_duration,
-        dynamics_duration=args.dynamics_duration,
-        sampling_interval=args.sampling_interval,
-        dynamics_max_step=args.dynamics_max_step,
+        single_scale_dynamics_duration=args.single_scale_dynamics_duration,
+        multiscale_dynamics_duration=args.multiscale_dynamics_duration,
+        single_scale_sampling_interval=args.single_scale_sampling_interval,
+        multiscale_sampling_interval=args.multiscale_sampling_interval,
+        single_scale_dynamics_max_step=args.single_scale_dynamics_max_step,
+        multiscale_dynamics_max_step=args.multiscale_dynamics_max_step,
         learning_max_step=args.learning_max_step,
         spinup_max_step=args.spinup_max_step,
         solver_method=args.solver_method,

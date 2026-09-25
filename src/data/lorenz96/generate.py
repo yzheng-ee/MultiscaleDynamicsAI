@@ -40,7 +40,7 @@ def generate_single_scale_data(
     process_noise: float = 0.0,
     solver_method: str = "RK45",
 ) -> NDArray[np.float64]:
-    """Generate a trajectory from the reduced model."""
+    """Generate reduced-model observations before the exclusive duration bound."""
     _validate_process_noise(process_noise)
     n_samples = _sample_count(duration, sampling_interval)
     dynamics_max_step = _resolve_dynamics_max_step(
@@ -74,7 +74,7 @@ def generate_multiscale_data(
     process_noise: float = 0.0,
     solver_method: str = "RK45",
 ) -> NDArray[np.float64]:
-    """Generate a full multiscale trajectory."""
+    """Generate full-model observations before the exclusive duration bound."""
     _validate_process_noise(process_noise)
     n_samples = _sample_count(duration, sampling_interval)
     dynamics_max_step = _resolve_dynamics_max_step(
@@ -113,9 +113,12 @@ def generate_lorenz96_data(
     initial_max: float = 10.0,
     spinup_duration: float = 50.0,
     learning_duration: float = 300.0,
-    dynamics_duration: float = 50.0,
-    sampling_interval: float = 0.001,
-    dynamics_max_step: float | None = None,
+    single_scale_dynamics_duration: float = 50.0,
+    multiscale_dynamics_duration: float = 50.0,
+    single_scale_sampling_interval: float = 0.001,
+    multiscale_sampling_interval: float = 0.001,
+    single_scale_dynamics_max_step: float | None = None,
+    multiscale_dynamics_max_step: float | None = None,
     learning_max_step: float = 0.001,
     spinup_max_step: float = 0.01,
     solver_method: str = "RK45",
@@ -142,9 +145,13 @@ def generate_lorenz96_data(
         raise ValueError("initial_max must be greater than initial_min")
     if learning_max_step <= 0 or spinup_max_step <= 0:
         raise ValueError("maximum solver steps must be positive")
-    _sample_count(dynamics_duration, sampling_interval)
-    dynamics_max_step = _resolve_dynamics_max_step(
-        sampling_interval, dynamics_max_step
+    _sample_count(single_scale_dynamics_duration, single_scale_sampling_interval)
+    _sample_count(multiscale_dynamics_duration, multiscale_sampling_interval)
+    single_scale_dynamics_max_step = _resolve_dynamics_max_step(
+        single_scale_sampling_interval, single_scale_dynamics_max_step
+    )
+    multiscale_dynamics_max_step = _resolve_dynamics_max_step(
+        multiscale_sampling_interval, multiscale_dynamics_max_step
     )
     _validate_process_noise(process_noise)
 
@@ -205,9 +212,9 @@ def generate_lorenz96_data(
     single_states = generate_single_scale_data(
         model=model,
         initial_state=generation_initial_state,
-        duration=dynamics_duration,
-        sampling_interval=sampling_interval,
-        dynamics_max_step=dynamics_max_step,
+        duration=single_scale_dynamics_duration,
+        sampling_interval=single_scale_sampling_interval,
+        dynamics_max_step=single_scale_dynamics_max_step,
         process_noise=process_noise,
         solver_method=solver_method,
     )
@@ -218,9 +225,9 @@ def generate_lorenz96_data(
     multiscale_states = generate_multiscale_data(
         model=model,
         initial_state=generation_initial_state,
-        duration=dynamics_duration,
-        sampling_interval=sampling_interval,
-        dynamics_max_step=dynamics_max_step,
+        duration=multiscale_dynamics_duration,
+        sampling_interval=multiscale_sampling_interval,
+        dynamics_max_step=multiscale_dynamics_max_step,
         process_noise=process_noise,
         solver_method=solver_method,
     )
