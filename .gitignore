@@ -3,6 +3,8 @@
 /proposal/
 /data/
 /outputs/
+/test/
+/tmp/
 
 # PyCharm
 .idea/
