@@ -5,7 +5,7 @@ from typing import Protocol
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
-from scipy.optimize import fsolve
+from scipy.optimize import brentq
 from scipy.special import logsumexp
 from sklearn.neighbors import NearestNeighbors
 
@@ -338,45 +338,48 @@ def _estimate_simplex_scale(
     tolerance: float,
 ) -> float:
     """Estimate one local scale using PANDA's simplex-neighbor equation."""
-    nearest_distance = np.min(neighbor_distances)
+    nearest_distance = float(np.min(neighbor_distances))
     shifted_distances = np.maximum(
         neighbor_distances - nearest_distance,
         0.0,
     )
     target_sum = np.log2(neighbor_distances.size)
 
-    def equation(scale: NDArray[np.float64]) -> float:
+    def equation(scale: float) -> float:
         return float(
             np.sum(
                 np.exp(
-                    -shifted_distances / (float(scale[0]) + tolerance)
+                    -shifted_distances / (scale + tolerance)
                 )
             )
             - target_sum
         )
 
-    def derivative(scale: NDArray[np.float64]) -> NDArray[np.float64]:
-        denominator = float(scale[0]) + tolerance
-        value = np.sum(
-            np.exp(-shifted_distances / denominator)
-            * shifted_distances
-            / denominator**2
-        )
-        return np.array([value], dtype=np.float64)
+    lower_bound = 0.0
+    lower_value = equation(lower_bound)
+    if lower_value >= 0.0:
+        return tolerance
 
-    initial_scale = max(float(nearest_distance), tolerance)
-    scale = float(
-        fsolve(
-            equation,
-            np.array([initial_scale]),
-            fprime=derivative,
-            xtol=tolerance,
-        )[0]
+    upper_bound = max(float(np.max(neighbor_distances)), tolerance)
+    upper_value = equation(upper_bound)
+    while upper_value < 0.0:
+        upper_bound *= 2.0
+        upper_value = equation(upper_bound)
+        if not np.isfinite(upper_bound):
+            raise ValueError("Could not bracket the simplex-scale root.")
+
+    scale = brentq(
+        equation,
+        lower_bound,
+        upper_bound,
+        xtol=tolerance,
+        rtol=4.0 * np.finfo(np.float64).eps,
     )
-    scale += tolerance
-    if not np.isfinite(scale) or scale <= 0.0:
+
+    regularized_scale = float(scale + tolerance)
+    if not np.isfinite(regularized_scale) or regularized_scale <= 0.0:
         raise ValueError("simplex-neighbor scale estimation did not converge.")
-    return scale
+    return regularized_scale
 
 
 def estimate_simplex_neighbor_scales(
