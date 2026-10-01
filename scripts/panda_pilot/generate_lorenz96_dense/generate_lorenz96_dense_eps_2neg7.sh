@@ -8,6 +8,7 @@ for seed in {0..31}; do
     echo "Generating dense Lorenz-96 trajectories for seed ${seed}..."
     python "${project_root}/scripts/generate_lorenz96.py" \
         --seed "${seed}" \
+        --epsilon 0.0078125 \
         --output-dir "${project_root}/data/panda_pilot/lorenz96_dense/eps_2neg7/seed_${seed}"
     echo "Finished dense Lorenz-96 trajectories for seed ${seed}."
 done

@@ -1,5 +1,6 @@
 """Generate datasets from the multiscale and learned Lorenz-96 models."""
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -8,6 +9,107 @@ from scipy.integrate import solve_ivp
 
 from .closure import fit_closure, load_closure
 from .model import L96M
+
+
+def build_lorenz96_metadata(
+    *,
+    K: int,
+    J: int,
+    hx: float,
+    hy: float,
+    F: float,
+    eps: float,
+    seed: int,
+    initial_min: float,
+    initial_max: float,
+    spinup_duration: float,
+    learning_duration: float,
+    single_scale_dynamics_duration: float,
+    multiscale_dynamics_duration: float,
+    single_scale_sampling_interval: float,
+    multiscale_sampling_interval: float,
+    single_scale_dynamics_max_step: float | None,
+    multiscale_dynamics_max_step: float | None,
+    learning_max_step: float,
+    spinup_max_step: float,
+    solver_method: str,
+    process_noise: float,
+    stencil_left: int,
+    stencil_right: int,
+    closure_sample_size: int,
+    closure_kernel: str,
+    closure_length_scale: float,
+    closure_rbf_bounds: tuple[float, float],
+    closure_matern_nu: float,
+    closure_alpha: float,
+    closure_optimizer_restarts: int,
+    closure_random_state: int | None,
+    output_dir: str | Path,
+    closure_filename: str,
+    single_scale_filename: str,
+    multiscale_filename: str,
+    metadata_filename: str,
+    write_metadata: bool,
+    train_closure: bool,
+    closure_path: str | Path | None,
+) -> dict[str, object]:
+    """Return the complete, grouped input configuration for one generation run."""
+    return {
+        "schema_version": 1,
+        "model_parameters": {
+            "K": K,
+            "J": J,
+            "hx": hx,
+            "hy": hy,
+            "forcing": F,
+            "epsilon": eps,
+        },
+        "initialization_parameters": {
+            "seed": seed,
+            "initial_min": initial_min,
+            "initial_max": initial_max,
+        },
+        "integration_and_sampling_parameters": {
+            "spinup_duration": spinup_duration,
+            "learning_duration": learning_duration,
+            "single_scale_dynamics_duration": single_scale_dynamics_duration,
+            "multiscale_dynamics_duration": multiscale_dynamics_duration,
+            "single_scale_sampling_interval": single_scale_sampling_interval,
+            "multiscale_sampling_interval": multiscale_sampling_interval,
+            "single_scale_dynamics_max_step": single_scale_dynamics_max_step,
+            "multiscale_dynamics_max_step": multiscale_dynamics_max_step,
+            "learning_max_step": learning_max_step,
+            "spinup_max_step": spinup_max_step,
+            "solver_method": solver_method,
+        },
+        "noise_parameters": {"process_noise": process_noise},
+        "closure_input_parameters": {
+            "stencil_left": stencil_left,
+            "stencil_right": stencil_right,
+        },
+        "gaussian_process_parameters": {
+            "closure_sample_size": closure_sample_size,
+            "closure_kernel": closure_kernel,
+            "closure_length_scale": closure_length_scale,
+            "closure_rbf_bounds": list(closure_rbf_bounds),
+            "closure_matern_nu": closure_matern_nu,
+            "closure_alpha": closure_alpha,
+            "closure_optimizer_restarts": closure_optimizer_restarts,
+            "closure_random_state": closure_random_state,
+        },
+        "output_parameters": {
+            "output_dir": str(output_dir),
+            "closure_filename": closure_filename,
+            "single_scale_filename": single_scale_filename,
+            "multiscale_filename": multiscale_filename,
+            "metadata_filename": metadata_filename,
+            "skip_metadata": not write_metadata,
+        },
+        "closure_reuse_parameters": {
+            "skip_closure_training": not train_closure,
+            "closure_path": str(closure_path) if closure_path is not None else None,
+        },
+    }
 
 
 def _sample_count(duration: float, sampling_interval: float) -> int:
@@ -137,6 +239,8 @@ def generate_lorenz96_data(
     closure_filename: str = "closure.joblib",
     single_scale_filename: str = "simulation_data_singlescale.npz",
     multiscale_filename: str = "simulation_data_multiscale.npz",
+    metadata_filename: str = "metadata.json",
+    write_metadata: bool = True,
     train_closure: bool = True,
     closure_path: str | Path | None = None,
 ) -> dict[str, Path]:
@@ -147,6 +251,8 @@ def generate_lorenz96_data(
         raise ValueError("maximum solver steps must be positive")
     _sample_count(single_scale_dynamics_duration, single_scale_sampling_interval)
     _sample_count(multiscale_dynamics_duration, multiscale_sampling_interval)
+    requested_single_scale_dynamics_max_step = single_scale_dynamics_max_step
+    requested_multiscale_dynamics_max_step = multiscale_dynamics_max_step
     single_scale_dynamics_max_step = _resolve_dynamics_max_step(
         single_scale_sampling_interval, single_scale_dynamics_max_step
     )
@@ -234,5 +340,53 @@ def generate_lorenz96_data(
     multiscale_path = output_dir / multiscale_filename
     np.savez(multiscale_path, states=multiscale_states)
     written["multiscale"] = multiscale_path
+
+    if write_metadata:
+        metadata = build_lorenz96_metadata(
+            K=K,
+            J=J,
+            hx=hx,
+            hy=hy,
+            F=F,
+            eps=eps,
+            seed=seed,
+            initial_min=initial_min,
+            initial_max=initial_max,
+            spinup_duration=spinup_duration,
+            learning_duration=learning_duration,
+            single_scale_dynamics_duration=single_scale_dynamics_duration,
+            multiscale_dynamics_duration=multiscale_dynamics_duration,
+            single_scale_sampling_interval=single_scale_sampling_interval,
+            multiscale_sampling_interval=multiscale_sampling_interval,
+            single_scale_dynamics_max_step=requested_single_scale_dynamics_max_step,
+            multiscale_dynamics_max_step=requested_multiscale_dynamics_max_step,
+            learning_max_step=learning_max_step,
+            spinup_max_step=spinup_max_step,
+            solver_method=solver_method,
+            process_noise=process_noise,
+            stencil_left=stencil_left,
+            stencil_right=stencil_right,
+            closure_sample_size=closure_sample_size,
+            closure_kernel=closure_kernel,
+            closure_length_scale=closure_length_scale,
+            closure_rbf_bounds=closure_rbf_bounds,
+            closure_matern_nu=closure_matern_nu,
+            closure_alpha=closure_alpha,
+            closure_optimizer_restarts=closure_optimizer_restarts,
+            closure_random_state=closure_random_state,
+            output_dir=output_dir,
+            closure_filename=closure_filename,
+            single_scale_filename=single_scale_filename,
+            multiscale_filename=multiscale_filename,
+            metadata_filename=metadata_filename,
+            write_metadata=write_metadata,
+            train_closure=train_closure,
+            closure_path=closure_path,
+        )
+        metadata_path = output_dir / metadata_filename
+        metadata_path.write_text(
+            json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+        )
+        written["metadata"] = metadata_path
 
     return written

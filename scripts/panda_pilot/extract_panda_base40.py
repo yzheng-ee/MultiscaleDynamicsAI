@@ -23,39 +23,12 @@ SOURCE_ID_PATTERN = re.compile(r"^(\d+)_")
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Extract every trajectory for one Panda system family. Each output "
-            "directory contains trajectory.npz and metadata.json."
-        )
-    )
-    parser.add_argument(
-        "trajectory_name",
-        help='Panda system-family name, for example "Lorenz" or "QiChen".',
-    )
-    parser.add_argument(
-        "--data-root",
-        type=Path,
-        default=DEFAULT_DATA_ROOT,
-        help=f"Directory containing Panda JSON and Parquet files (default: {DEFAULT_DATA_ROOT}).",
-    )
-    parser.add_argument(
-        "--split",
-        choices=("train", "test_zeroshot"),
-        default="train",
-        help="Dataset split to read (default: train).",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        required=True,
-        help="Directory in which trajectory_0, trajectory_1, ... are created.",
-    )
-    parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="Replace files inside trajectory directories that already exist.",
-    )
+    parser = argparse.ArgumentParser(description="Extract every trajectory for one Panda system family. Each output directory contains trajectory.npz and metadata.json.")
+    parser.add_argument("trajectory_name", help='Panda system-family name, for example "Lorenz" or "QiChen".')
+    parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT, help=f"Directory containing Panda JSON and Parquet files (default: {DEFAULT_DATA_ROOT}).")
+    parser.add_argument("--split", choices=("train", "test_zeroshot"), default="train", help="Dataset split to read (default: train).")
+    parser.add_argument("--output-dir", type=Path, required=True, help="Directory in which trajectory_0, trajectory_1, ... are created.")
+    parser.add_argument("--overwrite", action="store_true", help="Replace files inside trajectory directories that already exist.")
     return parser.parse_args()
 
 

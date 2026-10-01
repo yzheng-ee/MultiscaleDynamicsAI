@@ -2,6 +2,12 @@
 
 These utilities use the characteristic-timescale implementation provided by
 Dysts 0.96. See https://github.com/GilpinLab/dysts.
+
+The ``panda_pilot`` environment pins Dysts 0.95 to match the version resolved
+by the Panda revision used in the pilot. This does not conflict with this
+module: the ``find_characteristic_timescale`` API and implementation used here
+are unchanged between Dysts 0.95 and 0.96. See
+https://github.com/abao1999/panda.
 """
 
 from collections.abc import Callable

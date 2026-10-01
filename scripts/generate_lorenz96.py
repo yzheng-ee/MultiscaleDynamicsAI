@@ -63,6 +63,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--closure-filename", default="closure.joblib")
     parser.add_argument("--single-scale-filename", default="simulation_data_singlescale.npz")
     parser.add_argument("--multiscale-filename", default="simulation_data_multiscale.npz")
+    parser.add_argument("--metadata-filename", default="metadata.json")
+    parser.add_argument("--skip-metadata", action="store_true", help="do not write generation metadata")
 
     # Closure-reuse parameters optionally load an existing fit instead of training one.
     parser.add_argument("--skip-closure-training", action="store_true")
@@ -108,6 +110,8 @@ def main() -> None:
         closure_filename=args.closure_filename,
         single_scale_filename=args.single_scale_filename,
         multiscale_filename=args.multiscale_filename,
+        metadata_filename=args.metadata_filename,
+        write_metadata=not args.skip_metadata,
         train_closure=not args.skip_closure_training,
         closure_path=args.closure_path,
     )
