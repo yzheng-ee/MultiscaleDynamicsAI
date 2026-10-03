@@ -172,4 +172,3 @@ class PatchTSTPipeline:
         # unod the instance normalization
         completions = loc + scale * completions
         return completions
-

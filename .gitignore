@@ -3,7 +3,8 @@
 /proposal/
 /data/
 /outputs/
-/test/
+/tests/
+/docs/
 /tmp/
 
 # PyCharm

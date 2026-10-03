@@ -1072,4 +1072,3 @@ class PatchTSTForPrediction(PatchTSTPreTrainedModel):
             samples = outputs.prediction_outputs.unsqueeze(1)
 
         return SamplePatchTSTOutput(sequences=samples)  # type: ignore
-

@@ -188,4 +188,3 @@ def get_summary_metrics_dict(
         summary_metrics_dict[model_name]["p25"] = p25
         summary_metrics_dict[model_name]["p75"] = p75
     return summary_metrics_dict, has_nans
-

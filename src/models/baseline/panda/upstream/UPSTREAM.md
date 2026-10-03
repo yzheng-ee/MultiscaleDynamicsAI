@@ -18,7 +18,7 @@ configuration files, and experimental assets are intentionally excluded.
 
 1. In `panda/patchtst/pipeline.py`, the two absolute `panda.*` imports were
    changed to package-relative imports so the snapshot can live under this
-   project's `_vendor` namespace.
+   project's `baseline.panda.upstream` namespace.
 2. `panda/patchtst/__init__.py` was added to make the package boundary explicit.
 3. `panda/utils/__init__.py` was replaced with a minimal package initializer.
    Upstream eagerly imports all utility modules there, including training,

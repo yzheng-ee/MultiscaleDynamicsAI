@@ -330,4 +330,3 @@ class PatchTSTFourierApproximator(nn.Module):
         # Vectorized inverse transform
         reconstructed = torch.fft.irfft(filtered_ffts, seq_length, dim=1)
         return reconstructed
-

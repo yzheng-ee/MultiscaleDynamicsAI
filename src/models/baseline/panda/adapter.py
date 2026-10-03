@@ -2,7 +2,7 @@
 
 from typing import Any, Literal
 
-from .._vendor.panda.panda.patchtst.pipeline import PatchTSTPipeline
+from .upstream.panda.patchtst.pipeline import PatchTSTPipeline
 
 PandaMode = Literal["predict", "pretrain"]
 
