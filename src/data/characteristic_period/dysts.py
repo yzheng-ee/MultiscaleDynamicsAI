@@ -1,4 +1,4 @@
-"""Characteristic-timescale estimation and period-normalized sampling.
+"""Characteristic-period estimation for uniformly sampled trajectories.
 
 These utilities use the characteristic-timescale implementation provided by
 Dysts 0.96. See https://github.com/GilpinLab/dysts.
@@ -105,6 +105,14 @@ def estimate_characteristic_period(
         time_axis=time_axis,
     )
 
+    return _reduce_periods(periods, reduction)
+
+
+def _reduce_periods(
+    periods: NDArray[np.float64],
+    reduction: PeriodReduction | Callable[[NDArray[np.float64]], float],
+) -> float:
+    """Reduce validated channel periods to one positive finite period."""
     reductions: dict[PeriodReduction, Callable[[NDArray[np.float64]], float]] = {
         "median": np.median,
         "mean": np.mean,
@@ -123,90 +131,3 @@ def estimate_characteristic_period(
     if not np.isfinite(period) or period <= 0:
         raise ValueError("the aggregated period must be finite and positive")
     return period
-
-
-def make_period_normalized_times(
-    period: float,
-    *,
-    num_periods: float = 40,  # Panda effectively uses 4096 / (4096 // 40).
-    num_points: int = 4096,
-) -> NDArray[np.float64]:
-    """Return uniformly spaced observation times over a number of periods.
-
-    The returned grid includes both endpoints, so ``num_points`` observations
-    contain ``num_points - 1`` sampling intervals.
-
-    Args:
-        period: Characteristic period in physical-time units.
-        num_periods: Number of characteristic periods spanned by the grid.
-        num_points: Number of uniformly spaced observations, including both
-            endpoints.
-
-    Returns:
-        A one-dimensional time grid from zero through
-        ``num_periods * period``.
-
-    Raises:
-        TypeError: If ``num_points`` is not an integer.
-        ValueError: If ``period`` or ``num_periods`` is not finite and
-            positive, or if ``num_points`` is less than two.
-    """
-    if not np.isfinite(period) or period <= 0:
-        raise ValueError("period must be finite and positive")
-    if not np.isfinite(num_periods) or num_periods <= 0:
-        raise ValueError("num_periods must be finite and positive")
-    if isinstance(num_points, bool) or not isinstance(num_points, (int, np.integer)):
-        raise TypeError("num_points must be an integer")
-    if num_points < 2:
-        raise ValueError("num_points must be at least two")
-
-    return np.linspace(
-        0.0,
-        float(num_periods) * period,
-        int(num_points),
-        dtype=np.float64,
-    )
-
-
-def estimate_sampling_interval(
-    trajectory: ArrayLike,
-    sampling_interval: float,
-    *,
-    time_axis: int = -1,
-    reduction: PeriodReduction | Callable[[NDArray[np.float64]], float] = "median",
-    num_periods: float = 40,  # Panda effectively uses 4096 / (4096 // 40).
-    num_points: int = 4096,
-) -> float:
-    """Estimate a period-normalized target sampling interval.
-
-    Callers should select the channels that define the timescale of interest
-    before calling this function. For a multiscale slow-fast system, pass only
-    the slow-variable channels when the target sampling interval should follow
-    the slow dynamics.
-
-    Args:
-        trajectory: Densely and uniformly sampled data containing only the
-            channels relevant to the target timescale.
-        sampling_interval: Physical time between observations in the dense
-            input trajectory.
-        time_axis: Axis containing time. Defaults to the last axis.
-        reduction: Method used to combine channel-level period estimates.
-        num_periods: Number of estimated characteristic periods that the
-            target trajectory should span.
-        num_points: Number of uniformly spaced target observations.
-
-    Returns:
-        The physical time between consecutive target observations.
-    """
-    period = estimate_characteristic_period(
-        trajectory,
-        sampling_interval,
-        time_axis=time_axis,
-        reduction=reduction,
-    )
-    times = make_period_normalized_times(
-        period,
-        num_periods=num_periods,
-        num_points=num_points,
-    )
-    return float(times[1] - times[0])

@@ -1,199 +1,123 @@
-"""Multiscale Lorenz-96 model and its learned single-scale reduction."""
+"""Appendix B Lorenz '96 equations, independent of numerical integration."""
 
 from collections.abc import Callable
+from dataclasses import dataclass
 
 import numpy as np
 from numpy.typing import NDArray
 
+Array = NDArray[np.float64]
+Closure = Callable[[Array], Array]
 
-class L96M:
-    """Lorenz-96 model with ``K`` slow and ``K * J`` fast variables."""
 
-    def __init__(
-        self,
-        K: int = 9,
-        J: int = 8,
-        hx: float = -0.8,
-        hy: float = 1.0,
-        F: float = 10.0,
-        eps: float = 2**-7,
-    ) -> None:
-        if K < 4:
-            raise ValueError("K must be at least 4")
-        if J < 3:
-            raise ValueError("J must be at least 3")
-        if eps <= 0:
+def _slow_rhs(slow: Array, forcing: float) -> Array:
+    return -np.roll(slow, 1) * (np.roll(slow, 2) - np.roll(slow, -1)) - slow + forcing
+
+
+def _validate_dimension(name: str, value: int, minimum: int) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, np.integer)) or value < minimum:
+        raise ValueError(f"{name} must be an integer >= {minimum}")
+
+
+@dataclass(frozen=True)
+class MultiscaleLorenz96:
+    """Physical parameters (K, hx, hy correspond to L, h_v, h_w).
+
+    Full states contain K slow entries followed by K*J fast entries in
+    C order. The fast entries form one periodic ring across all groups.
+    """
+
+    K: int = 9
+    J: int = 8
+    hx: float = -0.8
+    hy: float = 1.0
+    F: float = 10.0
+    eps: float = 2**-7
+
+    def __post_init__(self):
+        for name, minimum in (("K", 4), ("J", 3)):
+            _validate_dimension(name, getattr(self, name), minimum)
+        for name in ("hx", "hy", "F", "eps"):
+            if not np.isfinite(getattr(self, name)):
+                raise ValueError(f"{name} must be finite")
+        if self.eps <= 0:
             raise ValueError("eps must be positive")
 
-        self.K = K
-        self.J = J
-        self.hx = hx
-        self.hy = hy
-        self.F = F
-        self.eps = eps
-        self.predictor: Callable[[NDArray[np.float64]], NDArray[np.float64]] | None = None
-        self.stencil = np.array([0], dtype=int)
+    @property
+    def state_dimension(self) -> int:
+        return self.K * (1 + self.J)
 
-        self.xk_star = np.zeros(K)
-        self.xk_star[0] = 5
-        self.xk_star[1] = 5
-        self.xk_star[-1] = 5
+    def split_state(self, state: Array) -> tuple[Array, Array]:
+        """Unpack a state (D,) or trajectory (D, N) into slow and fast arrays.
 
-    def __call__(
-        self, t: float, z: NDArray[np.float64]
-    ) -> NDArray[np.float64]:
-        """Evaluate the full multiscale Lorenz-96 right-hand side."""
-        del t
-        K = self.K
-        J = self.J
-        rhs = np.empty(K + K * J)
+        Returns shapes (K,), (K, J) for a vector, or (K, N), (K, J, N)
+        for a trajectory. Fast entries use the same C order as rhs.
+        """
+        state = np.asarray(state, dtype=float)
+        if state.ndim not in (1, 2) or state.shape[0] != self.state_dimension:
+            raise ValueError(f"state must have shape ({self.state_dimension},) or ({self.state_dimension}, N)")
+        return state[:self.K], state[self.K:].reshape(self.K, self.J, *state.shape[1:])
 
-        Yk = self.compute_Yk(z)
+    def rhs(self, t: float, state: Array) -> Array:
+        """Evaluate B.1–B.3 on a flat full state."""
+        slow, fast = state[:self.K], state[self.K:]
+        ds = _slow_rhs(slow, self.F) + self.hx * fast.reshape(self.K, self.J).mean(axis=1)
+        df = (-np.roll(fast, -1) * (np.roll(fast, -2) - np.roll(fast, 1))
+              - fast + self.hy * np.repeat(slow, self.J)) / self.eps
+        return np.concatenate((ds, df))
 
-        rhs[0] = -z[K - 1] * (z[K - 2] - z[1]) - z[0]
-        rhs[1] = -z[0] * (z[K - 1] - z[2]) - z[1]
-        rhs[K - 1] = -z[K - 2] * (z[K - 3] - z[0]) - z[K - 1]
-        for k in range(2, K - 1):
-            rhs[k] = -z[k - 1] * (z[k - 2] - z[k + 1]) - z[k]
 
-        rhs[:K] += self.F
-        rhs[:K] += self.hx * Yk
+@dataclass(frozen=True)
+class SingleScaleLorenz96:
+    """Reduced dynamics with a required, fixed callable fast-mean closure.
 
-        rhs[self.fidx(0, 0)] = (
-            -z[self.fidx(1, 0)]
-            * (z[self.fidx(2, 0)] - z[self.fidx(J - 1, K - 1)])
-            - z[self.fidx(0, 0)]
-        )
-        rhs[self.fidx(J - 2, 0)] = (
-            -z[self.fidx(J - 1, 0)]
-            * (z[self.fidx(0, 1)] - z[self.fidx(J - 3, 0)])
-            - z[self.fidx(J - 2, 0)]
-        )
-        rhs[self.fidx(J - 1, 0)] = (
-            -z[self.fidx(0, 1)]
-            * (z[self.fidx(1, 1)] - z[self.fidx(J - 2, 0)])
-            - z[self.fidx(J - 1, 0)]
-        )
-        for j in range(1, J - 2):
-            rhs[self.fidx(j, 0)] = (
-                -z[self.fidx(j + 1, 0)]
-                * (z[self.fidx(j + 2, 0)] - z[self.fidx(j - 1, 0)])
-                - z[self.fidx(j, 0)]
-            )
+    The closure maps a K-vector of slow values to a K-vector of fast means.
+    Parameters of the eliminated fast dynamics belong to the supplied closure.
+    """
 
-        rhs[self.fidx(0, K - 1)] = (
-            -z[self.fidx(1, K - 1)]
-            * (z[self.fidx(2, K - 1)] - z[self.fidx(J - 1, K - 2)])
-            - z[self.fidx(0, K - 1)]
-        )
-        rhs[self.fidx(J - 2, K - 1)] = (
-            -z[self.fidx(J - 1, K - 1)]
-            * (z[self.fidx(0, 0)] - z[self.fidx(J - 3, K - 1)])
-            - z[self.fidx(J - 2, K - 1)]
-        )
-        rhs[self.fidx(J - 1, K - 1)] = (
-            -z[self.fidx(0, 0)]
-            * (z[self.fidx(1, 0)] - z[self.fidx(J - 2, K - 1)])
-            - z[self.fidx(J - 1, K - 1)]
-        )
-        for j in range(1, J - 2):
-            rhs[self.fidx(j, K - 1)] = (
-                -z[self.fidx(j + 1, K - 1)]
-                * (z[self.fidx(j + 2, K - 1)] - z[self.fidx(j - 1, K - 1)])
-                - z[self.fidx(j, K - 1)]
-            )
+    closure: Closure
+    K: int = 9
+    hx: float = -0.8
+    F: float = 10.0
 
-        for k in range(1, K - 1):
-            rhs[self.fidx(0, k)] = (
-                -z[self.fidx(1, k)]
-                * (z[self.fidx(2, k)] - z[self.fidx(J - 1, k - 1)])
-                - z[self.fidx(0, k)]
-            )
-            rhs[self.fidx(J - 2, k)] = (
-                -z[self.fidx(J - 1, k)]
-                * (z[self.fidx(0, k + 1)] - z[self.fidx(J - 3, k)])
-                - z[self.fidx(J - 2, k)]
-            )
-            rhs[self.fidx(J - 1, k)] = (
-                -z[self.fidx(0, k + 1)]
-                * (z[self.fidx(1, k + 1)] - z[self.fidx(J - 2, k)])
-                - z[self.fidx(J - 1, k)]
-            )
-            for j in range(1, J - 2):
-                rhs[self.fidx(j, k)] = (
-                    -z[self.fidx(j + 1, k)]
-                    * (z[self.fidx(j + 2, k)] - z[self.fidx(j - 1, k)])
-                    - z[self.fidx(j, k)]
-                )
+    def __post_init__(self):
+        _validate_dimension("K", self.K, 4)
+        for name in ("hx", "F"):
+            if not np.isfinite(getattr(self, name)):
+                raise ValueError(f"{name} must be finite")
+        if not callable(self.closure):
+            raise TypeError("closure must be callable")
 
-        for k in range(K):
-            rhs[K + k * J : K + (k + 1) * J] += self.hy * z[k]
-        rhs[K:] /= self.eps
-        return rhs
+    @property
+    def state_dimension(self) -> int:
+        return self.K
 
-    def regressed(
-        self, t: float, x: NDArray[np.float64]
-    ) -> NDArray[np.float64]:
-        """Evaluate the learned single-scale Lorenz-96 right-hand side."""
-        del t
-        K = self.K
-        rhs = np.empty(K)
+    def rhs(self, t: float, state: Array) -> Array:
+        """Evaluate (2.9); closure predicts fast means, before multiplying by hx."""
+        means = np.asarray(self.closure(state), dtype=float)
+        if means.shape != state.shape or not np.isfinite(means).all():
+            raise ValueError("closure must return finite values with the same shape as slow")
+        return _slow_rhs(state, self.F) + self.hx * means
 
-        rhs[0] = -x[K - 1] * (x[K - 2] - x[1]) - x[0]
-        rhs[1] = -x[0] * (x[K - 1] - x[2]) - x[1]
-        rhs[K - 1] = -x[K - 2] * (x[K - 3] - x[0]) - x[K - 1]
-        for k in range(2, K - 1):
-            rhs[k] = -x[k - 1] * (x[k - 2] - x[k + 1]) - x[k]
 
-        rhs += self.F
-        rhs += self.hx * self.simulate(x)
-        return rhs
+def sample_initial_state(
+    model: MultiscaleLorenz96 | SingleScaleLorenz96,
+    *,
+    low: float = -5.0,
+    high: float = 10.0,
+    seed: int | None = None,
+) -> Array:
+    """Sample a state without integrating or evaluating a closure.
 
-    def set_predictor(
-        self, predictor: Callable[[NDArray[np.float64]], NDArray[np.float64]]
-    ) -> None:
-        self.predictor = predictor
-
-    def set_G0_predictor(self) -> None:
-        self.predictor = lambda x: self.hy * x
-
-    def set_stencil(self, left: int = 0, right: int = 0) -> None:
-        if left > right:
-            raise ValueError("stencil left must not exceed stencil right")
-        self.stencil = np.arange(left, right + 1)
-
-    def set_F(self, value: float) -> None:
-        self.F = value
-
-    def set_hx(self, value: float) -> None:
-        self.hx = value
-
-    def fidx(self, j: int, k: int) -> int:
-        """Return a fast variable's index in the full state vector."""
-        return self.K + k * self.J + j
-
-    def fidx_dec(self, j: int, k: int) -> int:
-        """Return a fast variable's index in a fast-only state vector."""
-        return k * self.J + j
-
-    def simulate(self, slow: NDArray[np.float64]) -> NDArray[np.float64]:
-        if self.predictor is None:
-            raise RuntimeError("a closure predictor must be set before simulation")
-        return np.reshape(self.predictor(self.apply_stencil(slow)), (-1,))
-
-    def compute_Yk(self, z: NDArray[np.float64]) -> NDArray[np.float64]:
-        return z[self.K :].reshape((self.J, self.K), order="F").sum(axis=0) / self.J
-
-    def gather_pairs(self, time_series: NDArray[np.float64]) -> NDArray[np.float64]:
-        n_times = time_series.shape[1]
-        pairs = np.empty((self.K * n_times, self.stencil.size + 1))
-        for j in range(n_times):
-            start = self.K * j
-            stop = self.K * (j + 1)
-            pairs[start:stop, :-1] = self.apply_stencil(time_series[: self.K, j])
-            pairs[start:stop, -1] = self.compute_Yk(time_series[:, j])
-        return pairs
-
-    def apply_stencil(self, slow: NDArray[np.float64]) -> NDArray[np.float64]:
-        indices = np.add.outer(np.arange(self.K), self.stencil) % self.K
-        return slow[indices]
+    Slow entries are uniform on [low, high). For a multiscale model, each fast
+    group starts at its associated slow value, packed in C order. With the
+    same K and seed, both model types receive identical slow entries.
+    """
+    if not isinstance(model, (MultiscaleLorenz96, SingleScaleLorenz96)):
+        raise TypeError("model must be a MultiscaleLorenz96 or SingleScaleLorenz96")
+    if not np.isfinite(low) or not np.isfinite(high) or low >= high:
+        raise ValueError("low and high must be finite, with low < high")
+    slow = np.random.default_rng(seed).uniform(low, high, model.K)
+    if isinstance(model, MultiscaleLorenz96):
+        return np.concatenate((slow, np.repeat(slow, model.J)))
+    return slow

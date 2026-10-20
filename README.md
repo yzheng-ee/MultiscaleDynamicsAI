@@ -154,21 +154,13 @@ python scripts/generate_lorenz96.py \
 
 When closure training is skipped, generation begins from the end of spin-up. When a new closure is trained, generation begins from the end of the learning trajectory.
 
-### 2.b. Sampling-interval estimator
+### 2.b. Characteristic-period estimator
 
-The sampling-interval utility converts a densely and uniformly sampled
-trajectory into a target sampling interval normalized by the trajectory's
-characteristic period. It uses the Fourier-based characteristic-timescale
-estimator from Dysts 0.96 for each selected channel, reduces those channel
-periods to one system-level period, and computes
-
-```text
-target sampling interval = num_periods * characteristic_period / (num_points - 1)
-```
-
-The `num_points - 1` denominator is intentional: the corresponding uniform
-time grid includes both endpoints. The defaults produce 4096 observations
-spanning 40 characteristic periods.
+The characteristic-period utility estimates a Fourier-based timescale for
+each channel of a densely and uniformly sampled trajectory using Dysts 0.96.
+It can then reduce those channel periods to one system-level period. Selecting
+a target sampling interval from that period is an experiment-design decision
+and is intentionally outside the scope of this module.
 
 #### 2.b.i. Environment
 
@@ -179,61 +171,16 @@ conda env create --file environments/timescales.yml
 conda activate timescales
 ```
 
-#### 2.b.ii. Estimate a sampling interval
+#### 2.b.ii. Python API
 
-The command-line tool accepts `.npy` files or `.npz` files containing a dense
-trajectory. For example, estimate an interval from the nine slow variables in
-a Lorenz–96 trajectory:
-
-```bash
-python scripts/estimate_sampling_interval.py \
-    --input data/lorenz96/simulation_data_multiscale.npz \
-    --array-key states \
-    --sampling-interval 0.001 \
-    --time-axis 1 \
-    --channels 0:9 \
-    --reduction median \
-    --num-periods 40 \
-    --num-points 4096 \
-    --output-dir data/lorenz96
-```
-
-`--sampling-interval` is the physical interval of the dense input, not the
-interval being estimated. `--time-axis` identifies the time dimension. All
-remaining dimensions are flattened into channels after the time axis is moved
-to the end. `--channels` then selects flattened channel indices using either
-slice syntax (`0:9` or `0:9:2`) or comma-separated list syntax (`0,2,4`).
-
-Choose channels that represent the timescale of interest. In a slow-fast
-system, use only the slow variables when the target interval should follow the
-slow dynamics. If `--channels` is omitted, every flattened channel is used and
-the tool prints a warning for multichannel input.
-
-By default, channel periods are combined with their median. The other
-command-line reductions are `mean`, `min`, and `max`. The result is written to
-`sampling_interval.json` unless `--output-filename` specifies another name.
-The JSON records the input shape and sampling interval, selected channels,
-individual channel periods, reduction, aggregate characteristic period,
-target grid settings, and estimated target sampling interval.
-
-List every available option with:
-
-```bash
-python scripts/estimate_sampling_interval.py --help
-```
-
-#### 2.b.iii. Python API
-
-The reusable API is in `src/data/timescales.py`:
+The reusable API is in `src/data/characteristic_period`:
 
 ```python
 import numpy as np
 
-from src.data.timescales import (
+from src.data.characteristic_period import (
     estimate_channel_periods,
     estimate_characteristic_period,
-    estimate_sampling_interval,
-    make_period_normalized_times,
 )
 
 states = np.load("data/lorenz96/simulation_data_multiscale.npz")["states"]
@@ -246,20 +193,11 @@ period = estimate_characteristic_period(
     time_axis=1,
     reduction="median",
 )
-target_dt = estimate_sampling_interval(
-    slow_states,
-    0.001,
-    time_axis=1,
-    reduction="median",
-    num_periods=40,
-    num_points=4096,
-)
-times = make_period_normalized_times(period, num_periods=40, num_points=4096)
 ```
 
 The library API also accepts a callable as the channel-period reduction.
-Inputs must contain at least two finite time points, and sampling intervals,
-period spans, and estimated periods must be finite and positive.
+Inputs must contain at least two finite time points, and the dense input
+sampling interval and estimated periods must be finite and positive.
 
 ## 3. References and acknowledgments
 
@@ -297,9 +235,9 @@ Dmitry Burov and asks users of those files to also cite:
 }
 ```
 
-### 3.b. Characteristic-timescale estimation
+### 3.b. Characteristic-period estimation
 
-The timescale module wraps characteristic-timescale functionality provided by
+The characteristic-period module wraps characteristic-timescale functionality provided by
 [dysts](https://github.com/GilpinLab/dysts). The project asks users to consider
 citing the following papers:
 
