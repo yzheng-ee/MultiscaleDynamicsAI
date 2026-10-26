@@ -1,14 +1,16 @@
-"""Estimate 99% AC-energy bandwidth periods for all five Test B calibrations.
+"""Estimate 99% AC-energy bandwidth periods for all six single-scale settings.
 
 Run using the panda_pilot environment:
-    python scripts/lorenz96_benchmark/estimate_bandwidth_periods_b.py
+    python scripts/lorenz96_benchmark/estimate_singlescale_bandwidth_periods.py
 
-Processes configurations sequentially, writing bandwidth_periods.json beside
-each dense calibration trajectory. Periods are reciprocals of channel bandwidth
-frequencies, in simulation-time units.
-Channel order follows the source metadata. Zero bandwidth implies an unbounded
-period, recorded as JSON null. Slow/fast summaries are medians of the channel
-periods, including unbounded periods. No sampling intervals are calculated.
+Processes A and all five Test B configurations sequentially, writing
+bandwidth_periods.json beside each single-scale dense calibration trajectory.
+Periods are reciprocals of channel bandwidth frequencies in simulation-time
+units. Channel order follows the source metadata. Zero bandwidth implies an
+unbounded period, recorded as JSON null. The summary is the median of
+all K channel periods, including unbounded periods. There are no fast channels
+or fast-period summary. No sampling intervals are calculated. Running this
+script replaces existing bandwidth-period JSON files.
 """
 
 import json
@@ -17,6 +19,7 @@ import sys
 from time import perf_counter
 
 import numpy as np
+from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -26,18 +29,18 @@ from src.data.sampling_interval import estimate_trajectory_bandwidths
 
 
 def main():
-    for subset in ("b_k", "b_j", "b_hx", "b_hy", "b_f"):
-        directory = ROOT / "outputs/lorenz96_benchmark" / f"dense_calibration_trajectory_{subset}"
+    run_started = perf_counter()
+    settings = ("a", "b_f", "b_hx", "b_hy", "b_j", "b_k")
+    for subset in tqdm(settings, desc="Single-scale bandwidths", unit="configuration"):
+        directory = ROOT / "data/lorenz96_benchmark/dense_calibration/singlescale" / f"singlescale_dense_calibration_trajectory_{subset}"
         metadata = json.loads((directory / "metadata.json").read_text())
-        with np.load(directory / metadata["filename"]) as data:
+        with np.load(directory / metadata["filename"], allow_pickle=False) as data:
             trajectory = Trajectory(time=data["time"], state=data["state"])
 
         K = metadata["parameters"]["K"]
-        J = metadata["parameters"]["J"]
-        if trajectory.state.shape != (K * (1 + J), trajectory.time.size):
-            raise ValueError("Trajectory shape does not match K, J, and time.")
+        if trajectory.state.shape != (K, trajectory.time.size):
+            raise ValueError("Single-scale trajectory shape does not match K and time.")
 
-        print(f"Estimating 99% AC-energy bandwidth periods for {subset.upper()}...", flush=True)
         started = perf_counter()
         bandwidths = estimate_trajectory_bandwidths(
             trajectory,
@@ -45,8 +48,7 @@ def main():
         )
         periods = np.full(bandwidths.shape, np.inf, dtype=np.float64)
         np.divide(1.0, bandwidths, out=periods, where=bandwidths > 0)
-        slow_period = float(np.median(periods[:K]))
-        fast_period = float(np.median(periods[K:]))
+        bandwidth_period = float(np.median(periods))
         elapsed = perf_counter() - started
 
         record = {
@@ -60,18 +62,16 @@ def main():
                 float(period) if np.isfinite(period) else None for period in periods
             ],
             "reduction": "median of channel bandwidth periods",
-            "slow_bandwidth_period": slow_period if np.isfinite(slow_period) else None,
-            "fast_bandwidth_period": fast_period if np.isfinite(fast_period) else None,
+            "bandwidth_period": bandwidth_period if np.isfinite(bandwidth_period) else None,
             "estimation_seconds": elapsed,
         }
         output_path = directory / "bandwidth_periods.json"
         temporary_path = output_path.with_suffix(".json.tmp")
         temporary_path.write_text(json.dumps(record, indent=2, allow_nan=False) + "\n")
         temporary_path.replace(output_path)
-        print(f"Slow median bandwidth period: {slow_period:.8g}", flush=True)
-        print(f"Fast median bandwidth period: {fast_period:.8g}", flush=True)
-        print(f"Saved {periods.size} channel periods to {output_path}", flush=True)
         del trajectory, bandwidths, periods
+
+    print(f"Single-scale bandwidth estimation finished: {len(settings)} records saved in {perf_counter() - run_started:.2f}s.", flush=True)
 
 
 if __name__ == "__main__":
