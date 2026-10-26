@@ -1,6 +1,6 @@
 """Read-only validation of the complete paired Lorenz–96 benchmark dataset.
 
-Run using the multiscale_dynamics environment:
+Run from the repository root using environments/lorenz96_benchmark.yml:
     python scripts/lorenz96_benchmark/validate_dataset.py
 
 Writes data/lorenz96_benchmark/validation_report.json.
@@ -693,7 +693,7 @@ def build_report(selected, inventory_pairs, pairs, calibrations, closures, resul
                  inventory_errors, status, full, run_started):
     """Build the existing report schema from completed checks."""
     return {
-        "dataset_version": "v1.0",
+        "dataset_version": "v0.5",
         "validation": "complete paired Lorenz–96 dataset",
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "status": status,

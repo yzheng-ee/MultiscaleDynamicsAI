@@ -27,8 +27,8 @@ The utility first spins up the full multiscale system. By default, it then gener
 Create and activate the Conda environment from the repository root:
 
 ```bash
-conda env create --file environments/multiscale_dynamics.yml
-conda activate multiscale_dynamics
+conda env create --file environments/lorenz96_benchmark.yml
+conda activate lorenz96_benchmark
 ```
 
 #### 2.a.ii. Generate data
@@ -166,7 +166,7 @@ and is intentionally outside the scope of this module.
 
 The legacy characteristic-period utility additionally requires `dysts==0.96`.
 This dependency is not included in the unified benchmark environment, defined
-in `environments/multiscale_dynamics.yml`. The Lorenz–96 benchmark uses
+in `environments/lorenz96_benchmark.yml`. The Lorenz–96 benchmark uses
 `src/data/sampling_interval` and does not require Dysts.
 
 #### 2.b.ii. Python API

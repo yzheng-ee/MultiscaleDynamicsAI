@@ -1,6 +1,6 @@
 """Generate all six single-scale dense calibration trajectories sequentially.
 
-Run using the multiscale_dynamics environment:
+Run from the repository root using environments/lorenz96_benchmark.yml:
     python scripts/lorenz96_benchmark/generate_singlescale_dense_calibration_trajectory.py
 
 Loads the frozen closure without refitting. After 50 time units of spin-up,

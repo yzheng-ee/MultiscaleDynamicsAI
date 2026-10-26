@@ -1,0 +1,16 @@
+name: lorenz96_benchmark
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.11
+  - numpy>=2.4,<3
+  - scipy>=1.17,<2
+  - scikit-learn>=1.9,<2
+  - joblib>=1.6,<2
+  - tqdm>=4.70,<5
+
+  # Plotting and notebooks.
+  - matplotlib>=3.11,<4
+  - ipykernel>=7,<8

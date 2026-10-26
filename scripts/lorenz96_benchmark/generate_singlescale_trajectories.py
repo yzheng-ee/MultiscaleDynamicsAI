@@ -1,6 +1,6 @@
 """Generate all 76 single-scale trajectories paired with the multiscale data.
 
-Run using the multiscale_dynamics environment:
+Run from the repository root using environments/lorenz96_benchmark.yml:
     python scripts/lorenz96_benchmark/generate_singlescale_trajectories.py
 
 Each configuration loads its frozen GP closure and single-scale bandwidth

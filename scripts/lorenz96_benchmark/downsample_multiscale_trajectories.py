@@ -1,6 +1,6 @@
 """Save the 8,192-point slow view of every multiscale forecasting trajectory.
 
-Run using the multiscale_dynamics environment:
+Run from the repository root using environments/lorenz96_benchmark.yml:
     python scripts/lorenz96_benchmark/downsample_multiscale_trajectories.py
 
 Outputs retain the original filenames under each multiscale/slow_downsampled/
@@ -76,7 +76,7 @@ def downsample_and_save(record, source_dir, output_dir):
     temporary_path.replace(output_path)
     elapsed = perf_counter() - started
     metadata = {
-        "dataset_version": "v1.0",
+        "dataset_version": "v0.5",
         "config_id": record["config_id"],
         "family": "multiscale",
         "view": "slow_downsampled",

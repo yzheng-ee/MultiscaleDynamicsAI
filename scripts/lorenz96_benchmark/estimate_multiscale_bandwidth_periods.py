@@ -1,6 +1,6 @@
 """Estimate 99% AC-energy bandwidth periods for all six multiscale settings.
 
-Run using the multiscale_dynamics environment:
+Run from the repository root using environments/lorenz96_benchmark.yml:
     python scripts/lorenz96_benchmark/estimate_multiscale_bandwidth_periods.py
 
 Replaces estimate_bandwidth_periods_a.py and estimate_bandwidth_periods_b.py.

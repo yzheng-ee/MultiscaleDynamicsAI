@@ -1,6 +1,6 @@
 """Fit the six frozen single-scale closures from dense calibration data.
 
-Run using the multiscale_dynamics environment from the repository root:
+Run from the repository root using environments/lorenz96_benchmark.yml:
     python scripts/lorenz96_benchmark/train_closures.py
 
 Each configuration samples exactly 800 site/time pairs without replacement,
