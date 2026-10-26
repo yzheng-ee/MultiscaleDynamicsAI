@@ -1,6 +1,6 @@
 """Generate all six multiscale dense calibration trajectories sequentially.
 
-Run using the panda_pilot environment:
+Run using the multiscale_dynamics environment:
     python scripts/lorenz96_benchmark/generate_multiscale_dense_calibration_trajectory.py
 
 Each configuration has its own directory, NPZ, and metadata.json.

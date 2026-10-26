@@ -1,6 +1,6 @@
 """Generate all 76 full multiscale trajectories across training, validation and tests.
 
-Run using the panda_pilot environment:
+Run using the multiscale_dynamics environment:
     python scripts/lorenz96_benchmark/generate_multiscale_trajectories.py
 
 Each configuration reuses its own calibrated bandwidth periods.

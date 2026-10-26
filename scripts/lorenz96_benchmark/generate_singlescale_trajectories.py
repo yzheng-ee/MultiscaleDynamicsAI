@@ -1,6 +1,6 @@
 """Generate all 76 single-scale trajectories paired with the multiscale data.
 
-Run using the panda_pilot environment:
+Run using the multiscale_dynamics environment:
     python scripts/lorenz96_benchmark/generate_singlescale_trajectories.py
 
 Each configuration loads its frozen GP closure and single-scale bandwidth

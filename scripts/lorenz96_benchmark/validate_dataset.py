@@ -1,6 +1,6 @@
 """Read-only validation of the complete paired Lorenz–96 benchmark dataset.
 
-Run using the panda_pilot environment:
+Run using the multiscale_dynamics environment:
     python scripts/lorenz96_benchmark/validate_dataset.py
 
 Writes data/lorenz96_benchmark/validation_report.json.

@@ -1,6 +1,6 @@
 """Save the 8,192-point slow view of every multiscale forecasting trajectory.
 
-Run using the panda_pilot environment:
+Run using the multiscale_dynamics environment:
     python scripts/lorenz96_benchmark/downsample_multiscale_trajectories.py
 
 Outputs retain the original filenames under each multiscale/slow_downsampled/

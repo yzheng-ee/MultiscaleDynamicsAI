@@ -1,6 +1,6 @@
 """Generate all six single-scale dense calibration trajectories sequentially.
 
-Run using the panda_pilot environment:
+Run using the multiscale_dynamics environment:
     python scripts/lorenz96_benchmark/generate_singlescale_dense_calibration_trajectory.py
 
 Loads the frozen closure without refitting. After 50 time units of spin-up,

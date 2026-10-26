@@ -1,0 +1,26 @@
+name: multiscale_dynamics
+
+channels:
+  - conda-forge
+
+dependencies:
+  # Benchmark generation, validation, and analysis.
+  - python=3.11
+  - numpy>=2,<3
+  - scipy>=1.17,<2
+  - scikit-learn>=1.9,<2
+  - joblib>=1.6,<2
+  - tqdm>=4.70,<5
+  - matplotlib>=3.11,<4
+  - ipykernel>=7,<8
+  # Panda model utilities and training.
+  - pandas>=2.3,<3
+  - pip
+  - pip:
+      - torch>=2.13,<3
+      # Panda imports internal PatchTST APIs from this Transformers version.
+      - transformers==4.40.2
+      - accelerate>=1.15,<2
+      - gluonts[arrow]>=0.17,<1
+      - huggingface-hub>=0.36,<1
+      - safetensors>=0.8,<1

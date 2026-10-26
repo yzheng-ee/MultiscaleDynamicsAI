@@ -1,6 +1,6 @@
 """Estimate 99% AC-energy bandwidth periods for all six single-scale settings.
 
-Run using the panda_pilot environment:
+Run using the multiscale_dynamics environment:
     python scripts/lorenz96_benchmark/estimate_singlescale_bandwidth_periods.py
 
 Processes A and all five Test B configurations sequentially, writing
