@@ -1,0 +1,25 @@
+name: panda
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.11
+  - git
+  - numpy=1.26.4
+  - ipykernel>=7,<8
+  - pip
+  - pip:
+      # CUDA 12.6 wheels for Perlmutter; macOS uses the native PyTorch wheel.
+      - --extra-index-url https://download.pytorch.org/whl/cu126
+      - "torch==2.13.0+cu126; sys_platform == 'linux'"
+      - "torch==2.13.0; sys_platform != 'linux'"
+      # Training/inference versions exercised in the local integration checks.
+      - accelerate==1.15.0
+      - transformers==4.40.2
+      - huggingface-hub==0.36.2
+      - safetensors==0.8.0
+      - wandb==0.31.0
+      # Original Panda implementation, pinned for reproducibility.
+      # Upstream still requires dysts@master, so this is not a complete dependency lock.
+      - panda @ git+https://github.com/abao1999/panda.git@c229e7c8c49cbe294458c44160248bb17856a715
