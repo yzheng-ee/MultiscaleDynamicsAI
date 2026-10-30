@@ -23,6 +23,12 @@ export OMP_NUM_THREADS=8
 export MKL_NUM_THREADS=8
 export OPENBLAS_NUM_THREADS=1
 
+# Keep Hugging Face cache locks on the node-local filesystem.
+export HF_HOME="/tmp/$USER/huggingface"
+export HF_HUB_CACHE="$HF_HOME/hub"
+unset TRANSFORMERS_CACHE
+mkdir -p "$HF_HUB_CACHE"
+
 python -c 'import torch; assert torch.cuda.device_count() == 4, "Expected four visible CUDA GPUs"'
 
 # Run both families sequentially in the same allocation, using all four GPUs.

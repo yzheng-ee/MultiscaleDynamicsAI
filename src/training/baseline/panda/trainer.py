@@ -28,6 +28,12 @@ from .data import PandaForecastDataset
 class PandaEarlyStoppingCallback(EarlyStoppingCallback):
     """Restore the patience counter from validation history when training resumes."""
 
+    def on_evaluate(self, args, state, control, metrics, **kwargs):
+        # The baseline evaluation precedes training and checkpoint selection.
+        if "initial_eval_loss" in metrics:
+            return
+        return super().on_evaluate(args, state, control, metrics, **kwargs)
+
     def on_train_begin(self, args, state, control, **kwargs):
         super().on_train_begin(args, state, control, **kwargs)
         # HF 4.40.2 does not persist this callback's patience counter. Rebuild it

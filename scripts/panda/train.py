@@ -225,4 +225,11 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        # HF/Accelerate may initialize a process group before model loading.
+        # Avoid importing PyTorch just to handle --help or argument errors.
+        distributed = sys.modules.get("torch.distributed")
+        if distributed is not None and distributed.is_initialized():
+            distributed.destroy_process_group()
