@@ -17,7 +17,7 @@ def build_panda_model(
     *,
     checkpoint: str | Path | None = None,
     model_config: PatchTSTConfig | None = None,
-    seed: int = 42,
+    seed: int = 99,
     **load_kwargs: Any,
 ) -> PatchTSTForPrediction:
     """Use exactly one of checkpoint/config; HF loading options pass through.

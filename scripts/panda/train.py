@@ -13,12 +13,10 @@ checkpoint-* directories with training state, and model/ with the selected model
 
 import argparse
 import hashlib
-from importlib.metadata import version
 import json
 import logging
 import os
 from pathlib import Path
-import subprocess
 import sys
 from typing import Any
 
@@ -44,12 +42,11 @@ def parse_args() -> argparse.Namespace:
 
     # Output checkpoints and training resume.
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--polynomial-indices-filename", help="Saved mapping name; default: polynomial_indices.json.")
     parser.add_argument("--resume-from-checkpoint", type=Path, help="Resume a checkpoint-* directory in this output.")
     parser.add_argument("--save-total-limit", type=int, default=2)
 
     # Reproducibility and training duration.
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=99)
     parser.add_argument("--epochs", type=float, default=5)
     parser.add_argument("--max-steps", type=int, help="Positive optimizer-step budget; overrides --epochs.")
     parser.add_argument("--early-stopping-patience", type=int, help="Stop after N validations without improvement.")
@@ -104,21 +101,15 @@ def write_json(path: Path, record: dict[str, Any]) -> None:
     temporary.replace(path)
 
 
-def describe_cache(path: Path, shape: tuple[int, ...]) -> dict[str, Any]:
-    """Fingerprint the actual window file, independently of preparation metadata."""
-    with path.open("rb") as stream:
-        digest = hashlib.file_digest(stream, "sha256").hexdigest()
-    return {"path": str(path), "shape": list(shape), "sha256": digest}
-
-
 def main() -> None:
     args = parse_args()
     # Keep --help available without importing model/training dependencies.
     from transformers import TrainingArguments
 
     from src.models.baseline.panda.loader import DEFAULT_CHECKPOINT, build_panda_model
-    from src.models.baseline.panda.polynomial_indices import POLYNOMIAL_INDICES_FILE, load_polynomial_indices
+    from src.models.baseline.panda.polynomial_indices import load_polynomial_indices
     from src.training.baseline.panda import PandaTrainer, dataset_from_cache
+    from src.training.baseline.panda.run_metadata import build_run_metadata, describe_cache
     from src.training.baseline.panda.trainer import PandaEarlyStoppingCallback
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -128,7 +119,6 @@ def main() -> None:
     args.checkpoint = args.checkpoint or DEFAULT_CHECKPOINT
     if Path(args.checkpoint).is_dir():
         args.checkpoint = str(Path(args.checkpoint).resolve())
-    args.polynomial_indices_filename = args.polynomial_indices_filename or POLYNOMIAL_INDICES_FILE
     args.run_name = args.run_name or args.output_dir.name
     output, resume = args.output_dir, args.resume_from_checkpoint
     if output.exists() and not output.is_dir():
@@ -180,7 +170,7 @@ def main() -> None:
         checkpoint=resume or args.checkpoint, seed=args.seed,
         revision=None if resume else args.revision, local_files_only=args.local_files_only,
     )
-    indices_path = resume / args.polynomial_indices_filename if resume else args.polynomial_indices_path
+    indices_path = resume / "polynomial_indices.json" if resume else args.polynomial_indices_path
     indices_restored = False
     if indices_path is not None:
         indices_restored = load_polynomial_indices(model, polynomial_indices_path=indices_path, required=True)
@@ -196,29 +186,13 @@ def main() -> None:
     callbacks = []
     if args.early_stopping_patience is not None:
         callbacks.append(PandaEarlyStoppingCallback(early_stopping_patience=args.early_stopping_patience))
-    trainer = PandaTrainer(
-        model, training_args, train_dataset=train_dataset, eval_dataset=validation_dataset,
-        polynomial_indices_filename=args.polynomial_indices_filename, callbacks=callbacks,
+    trainer = PandaTrainer(model, training_args, train_dataset=train_dataset, eval_dataset=validation_dataset, callbacks=callbacks)
+    record = build_run_metadata(
+        settings=settings, training_args=training_args, data=data, model_config=model.config,
+        polynomial_indices_restored=indices_restored, project_root=ROOT,
+        resume_from_checkpoint=resume, previous=previous,
     )
-    metrics = {
-        name: value for name, value in (previous["metrics"] if previous else {}).items()
-        if name.startswith("initial_eval_")
-    }
-    try:
-        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-        dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True))
-    except (OSError, subprocess.CalledProcessError):
-        commit, dirty = None, None
-    resolved_revision = previous["resolved_checkpoint_revision"] if previous else getattr(model.config, "_commit_hash", None)
-    record = {
-        "status": "running", "settings": settings, "training_arguments": json.loads(training_args.to_json_string()),
-        "data": data, "world_size": training_args.world_size, "device": str(training_args.device),
-        "versions": {name: version(name) for name in ("panda", "torch", "transformers", "accelerate", "numpy")},
-        "python_version": sys.version.split()[0], "project_commit": commit, "project_dirty": dirty,
-        "resolved_checkpoint_revision": resolved_revision,
-        "polynomial_indices": "restored" if indices_restored else "generated_at_initialization",
-        "resume_from_checkpoint": str(resume) if resume else None, "metrics": metrics,
-    }
+    metrics = record["metrics"]
     if trainer.is_world_process_zero():
         write_json(output / "run.json", record)
         LOGGER.info("%d training windows; %d validation windows", len(train_dataset), len(validation_dataset))

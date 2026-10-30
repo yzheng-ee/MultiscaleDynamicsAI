@@ -18,7 +18,6 @@ from transformers import EarlyStoppingCallback, Trainer, TrainingArguments
 from panda.patchtst.patchtst import PatchTSTForPrediction
 
 from src.models.baseline.panda.polynomial_indices import (
-    POLYNOMIAL_INDICES_FILE,
     load_polynomial_indices,
     save_polynomial_indices,
 )
@@ -54,8 +53,7 @@ class PandaTrainer(Trainer):
     """Native HF interface with forecasting dataset checks and finite-loss checks.
 
     Set prediction_loss_only=False after construction if predictions are needed.
-    polynomial_indices_filename names the companion file in every checkpoint
-    and model export; use the same name when resuming training.
+    Every checkpoint and model export includes polynomial_indices.json.
     """
 
     def __init__(
@@ -65,17 +63,8 @@ class PandaTrainer(Trainer):
         *,
         train_dataset: PandaForecastDataset | None = None,
         eval_dataset: PandaForecastDataset | None = None,
-        polynomial_indices_filename: str = POLYNOMIAL_INDICES_FILE,
         **kwargs: Any,
     ) -> None:
-        if (
-            not polynomial_indices_filename
-            or Path(polynomial_indices_filename).name != polynomial_indices_filename
-            or polynomial_indices_filename in {".", ".."}
-        ):
-            raise ValueError("polynomial_indices_filename must be a single file name, not a path")
-        self.polynomial_indices_filename = polynomial_indices_filename
-
         if not isinstance(model, PatchTSTForPrediction):
             raise TypeError("model must be PatchTSTForPrediction")
 
@@ -104,6 +93,7 @@ class PandaTrainer(Trainer):
         )
 
     def train(self, *args, **kwargs):
+        """Guard partial accumulation groups before delegating to HF training."""
         # Require complete, equally sized gradient-accumulation groups.
         # This avoids partial-group handling issues observed in older HF Trainers.
         # Accumulation=1 is unrestricted. Revisit this policy if partial groups
@@ -119,6 +109,7 @@ class PandaTrainer(Trainer):
         return super().train(*args, **kwargs)
 
     def compute_loss(self, model, inputs, return_outputs=False):
+        """Use HF's loss handling and stop immediately on NaN or infinite loss."""
         # Panda averages errors over batch, time, and channels into a scalar tensor.
         loss, outputs = super().compute_loss(model, inputs, return_outputs=True)
 
@@ -127,30 +118,22 @@ class PandaTrainer(Trainer):
 
         return (loss, outputs) if return_outputs else loss
 
-    def evaluate(self, *args, **kwargs):
-        was_training = self.model.training
-
-        try:
-            return super().evaluate(*args, **kwargs)
-        finally:
-            self.model.train(was_training)
-
     def save_model(self, output_dir=None, _internal_call=False):
         """Include the feature map in both epoch checkpoints and model exports."""
         super().save_model(output_dir, _internal_call=_internal_call)  # Uses self.args.output_dir when output_dir is None.
         if self.args.should_save:
+            directory = Path(self.args.output_dir if output_dir is None else output_dir)
             save_polynomial_indices(
                 self.model,
-                self.args.output_dir if output_dir is None else output_dir,
-                filename=self.polynomial_indices_filename,
+                polynomial_indices_path=directory / "polynomial_indices.json",
             )
 
     def _load_from_checkpoint(self, resume_from_checkpoint, model=None):
-        """Restore the feature map as well as weights before training resumes."""
+        """Restore weights and the feature map from a checkpoint directory."""
         super()._load_from_checkpoint(resume_from_checkpoint, model=model)
         load_polynomial_indices(
             self.model if model is None else model,
-            polynomial_indices_path=Path(resume_from_checkpoint) / self.polynomial_indices_filename,
+            polynomial_indices_path=Path(resume_from_checkpoint) / "polynomial_indices.json",
             required=True,
         )
 
@@ -159,11 +142,12 @@ class PandaTrainer(Trainer):
         super()._load_best_model()
         load_polynomial_indices(
             self.model,
-            polynomial_indices_path=Path(self.state.best_model_checkpoint) / self.polynomial_indices_filename,
+            polynomial_indices_path=Path(self.state.best_model_checkpoint) / "polynomial_indices.json",
             required=True,
         )
 
     def _load_rng_state(self, checkpoint):
+        """Allow NumPy RNG restoration with HF 4.40.2 and newer PyTorch."""
         # Older HF Trainers restore RNG records through torch.load(), which can
         # reject their NumPy objects under newer PyTorch loading restrictions.
         # When safe_globals is available, temporarily allow the specific NumPy

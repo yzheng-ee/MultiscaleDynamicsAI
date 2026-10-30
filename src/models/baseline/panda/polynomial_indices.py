@@ -7,9 +7,6 @@ from typing import Any
 import torch
 from panda.patchtst.patchtst import PatchTSTForPrediction
 
-POLYNOMIAL_INDICES_FILE = "polynomial_indices.json"
-
-
 def get_polynomial_indices(model: PatchTSTForPrediction) -> dict[str, Any] | None:
     """Return a JSON-compatible feature record, or None if polynomial features are unused.
 
@@ -38,19 +35,14 @@ def get_polynomial_indices(model: PatchTSTForPrediction) -> dict[str, Any] | Non
 
 def save_polynomial_indices(
     model: PatchTSTForPrediction,
-    output_dir: str | Path,
-    *,
-    filename: str = POLYNOMIAL_INDICES_FILE,
+    polynomial_indices_path: str | Path,
 ) -> Path | None:
-    """Save unregistered feature indices in output_dir using the supplied filename."""
-    if not filename or Path(filename).name != filename or filename in {".", ".."}:
-        raise ValueError("filename must be a single file name, not a path")
-
+    """Save unregistered feature indices at the supplied file path."""
     payload = get_polynomial_indices(model)
     if payload is None:
         return None
 
-    path = Path(output_dir) / filename
+    path = Path(polynomial_indices_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
     temporary.write_text(json.dumps(payload, indent=2) + "\n")
