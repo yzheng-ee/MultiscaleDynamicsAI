@@ -11,11 +11,11 @@ output_dir="outputs/panda_lorenz96/trajectory_paths"
 
 for family in singlescale multiscale; do
     for split in training validation; do
-        input_dir="$data_root/$split/$family"
+        input_dir="$data_root/$split/$family/a"
         if [[ "$family" == "multiscale" ]]; then
             input_dir="$input_dir/slow_downsampled"
         fi
-        "$python_bin" scripts/panda/collect_trajectory_paths.py \
+        "$python_bin" scripts/panda_lorenz96/collect_trajectory_paths.py \
             --input-dir "$input_dir" \
             --output-path "$output_dir/${family}_${split}.json"
     done

@@ -10,7 +10,7 @@
 #SBATCH --output=slurm-%x-%j.out
 #SBATCH --error=slurm-%x-%j.err
 
-# Submit from the repository root: sbatch --account=<GPU_ACCOUNT> scripts/panda/finetune_lorenz96.slurm
+# Submit from the repository root: sbatch --account=<GPU_ACCOUNT> experiments/panda_lorenz96/finetune.slurm
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:?Submit this job from the repository root}"
 
@@ -38,7 +38,7 @@ for family in multiscale singlescale; do
     srun --ntasks=1 --cpu-bind=none --gpu-bind=none \
         python -u -m torch.distributed.run \
         --standalone --nnodes=1 --nproc-per-node=4 \
-        scripts/panda/train.py \
+        scripts/panda_lorenz96/train.py \
         --train-windows-path outputs/panda_lorenz96/windows/${family}_training/windows.npy \
         --validation-windows-path outputs/panda_lorenz96/windows/${family}_validation/windows.npy \
         --context-length 512 \

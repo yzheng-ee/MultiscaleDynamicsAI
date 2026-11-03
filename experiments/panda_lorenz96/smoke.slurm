@@ -11,7 +11,7 @@
 #SBATCH --error=slurm-%x-%j.err
 
 # Submit from the repository root:
-# sbatch --account=<GPU_ACCOUNT> scripts/panda/smoke_lorenz96.slurm
+# sbatch --account=<GPU_ACCOUNT> experiments/panda_lorenz96/smoke.slurm
 # One Slurm task launches four GPU workers, matching the full training job.
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:?Submit this job from the repository root}"
@@ -95,14 +95,14 @@ for family in multiscale singlescale; do
     srun --ntasks=1 --cpu-bind=none --gpu-bind=none \
         python -u -m torch.distributed.run \
         --standalone --nnodes=1 --nproc-per-node=4 \
-        scripts/panda/train.py "${train_args[@]}"
+        scripts/panda_lorenz96/train.py "${train_args[@]}"
     cp "$test_dir/training/run.json" "$test_dir/fresh_run.json"
 
     echo "$family: resume from checkpoint-2 and repeat the second epoch"
     srun --ntasks=1 --cpu-bind=none --gpu-bind=none \
         python -u -m torch.distributed.run \
         --standalone --nnodes=1 --nproc-per-node=4 \
-        scripts/panda/train.py "${train_args[@]}" \
+        scripts/panda_lorenz96/train.py "${train_args[@]}" \
         --resume-from-checkpoint "$test_dir/training/checkpoint-2"
 
     python - "$test_dir" <<'PY'

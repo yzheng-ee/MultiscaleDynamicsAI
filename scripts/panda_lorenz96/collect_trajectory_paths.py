@@ -1,8 +1,8 @@
 """Collect trajectory file paths from one directory into a flat JSON list.
 
 Example from the repository root:
-    python scripts/panda/collect_trajectory_paths.py \
-        --input-dir data/lorenz96_benchmark/training/multiscale/slow_downsampled \
+    python scripts/panda_lorenz96/collect_trajectory_paths.py \
+        --input-dir data/lorenz96_benchmark/training/multiscale/a/slow_downsampled \
         --output-path outputs/panda_lorenz96/trajectory_paths/multiscale_training.json --first-n 16
 
 Files are selected directly from the input directory, without recursion or

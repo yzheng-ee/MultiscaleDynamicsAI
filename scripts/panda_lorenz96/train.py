@@ -1,7 +1,7 @@
 r"""Fine-tune Panda on prepared NumPy window caches; launch directly or with torchrun.
 
 Example from the repository root:
-    python scripts/panda/train.py \
+    python scripts/panda_lorenz96/train.py \
         --train-windows-path outputs/panda_lorenz96/windows/multiscale_training/windows.npy \
         --validation-windows-path outputs/panda_lorenz96/windows/multiscale_validation/windows.npy \
         --context-length 512 --prediction-length 128 \
@@ -28,35 +28,35 @@ LOGGER = logging.getLogger(__name__)
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 
-    # Input windows and history/target lengths.
+    # Input windows and history/target lengths
     parser.add_argument("--train-windows-path", type=Path, required=True)
     parser.add_argument("--validation-windows-path", type=Path, required=True)
     parser.add_argument("--context-length", type=int, required=True)
     parser.add_argument("--prediction-length", type=int, required=True)
 
-    # Initial model weights and polynomial mapping.
+    # Initial model weights and polynomial mapping
     parser.add_argument("--checkpoint", help="Local model directory or HF repository; default: GilpinLab/panda.")
     parser.add_argument("--revision", help="HF checkpoint commit/tag; pin a commit for reproducibility.")
     parser.add_argument("--polynomial-indices-path", type=Path, help="Initial mapping file; omit to use seeded indices.")
     parser.add_argument("--local-files-only", action="store_true")
 
-    # Output checkpoints and training resume.
+    # Output checkpoints and training resume
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--resume-from-checkpoint", type=Path, help="Resume a checkpoint-* directory in this output.")
     parser.add_argument("--save-total-limit", type=int, default=2)
 
-    # Reproducibility and training duration.
+    # Reproducibility and training duration
     parser.add_argument("--seed", type=int, default=99)
     parser.add_argument("--epochs", type=float, default=5)
     parser.add_argument("--max-steps", type=int, help="Positive optimizer-step budget; overrides --epochs.")
     parser.add_argument("--early-stopping-patience", type=int, help="Stop after N validations without improvement.")
 
-    # Batch sizes and gradient accumulation.
+    # Batch sizes and gradient accumulation
     parser.add_argument("--batch-size", type=int, default=8, help="Training examples per batch per process.")
     parser.add_argument("--eval-batch-size", type=int, default=8)
     parser.add_argument("--gradient-accumulation-steps", type=int, default=1)
 
-    # Optimizer and learning-rate schedule.
+    # Optimizer and learning-rate schedule
     parser.add_argument("--learning-rate", type=float, default=1e-5)
     parser.add_argument("--weight-decay", type=float, default=0.0)
     parser.add_argument("--max-grad-norm", type=float, default=1.0)
@@ -64,13 +64,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warmup-ratio", type=float, default=0.1)
     parser.add_argument("--optim", default="adamw_torch", help="Native HF optimizer name.")
 
-    # Data loading, numerical precision, and distributed execution.
+    # Data loading, numerical precision, and distributed execution
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--precision", choices=("fp32", "fp16", "bf16"), default="fp32")
     parser.add_argument("--cpu", action="store_true")
     parser.add_argument("--local-rank", "--local_rank", type=int, default=-1, help=argparse.SUPPRESS)
 
-    # Run naming, logging, and optional W&B tracking.
+    # Run naming, logging, and optional W&B tracking
     parser.add_argument("--logging-steps", type=int, default=10)
     parser.add_argument("--run-name", help="Defaults to the output directory name.")
     parser.add_argument("--report-to", choices=("none", "wandb"), default="none")
@@ -197,10 +197,7 @@ def main() -> None:
         write_json(output / "run.json", record)
         LOGGER.info("%d training windows; %d validation windows", len(train_dataset), len(validation_dataset))
     try:
-        if resume is None:
-            metrics.update(trainer.evaluate(metric_key_prefix="initial_eval"))
-            if trainer.is_world_process_zero():
-                write_json(output / "run.json", record)
+        # Train first so Accelerate prepares the model for distributed training.
         result = trainer.train(resume_from_checkpoint=str(resume) if resume else None)
         metrics.update(result.metrics)
         metrics.update(trainer.evaluate())

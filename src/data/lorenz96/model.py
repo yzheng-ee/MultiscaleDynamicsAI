@@ -1,4 +1,4 @@
-"""Appendix B Lorenz '96 equations, independent of numerical integration."""
+"""Single-scale and multiscale Lorenz–96 models and initial-state sampling."""
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -6,25 +6,28 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
+from .._utils.validation import _validate_finite, _validate_integer, _validate_positive, _validate_real
+
 Array = NDArray[np.float64]
 Closure = Callable[[Array], Array]
 
 
 def _slow_rhs(slow: Array, forcing: float) -> Array:
+    """Compute slow-variable advection, damping, and constant forcing."""
+    # f_k(x) = -x_{k-1} * (x_{k-2} - x_{k+1}) - x_k + F, with indices modulo K
     return -np.roll(slow, 1) * (np.roll(slow, 2) - np.roll(slow, -1)) - slow + forcing
-
-
-def _validate_dimension(name: str, value: int, minimum: int) -> None:
-    if isinstance(value, bool) or not isinstance(value, (int, np.integer)) or value < minimum:
-        raise ValueError(f"{name} must be an integer >= {minimum}")
 
 
 @dataclass(frozen=True)
 class MultiscaleLorenz96:
-    """Physical parameters (K, hx, hy correspond to L, h_v, h_w).
+    """Coupled dynamics of K slow variables and J fast variables per slow site.
 
-    Full states contain K slow entries followed by K*J fast entries in
-    C order. The fast entries form one periodic ring across all groups.
+    hx scales fast-to-slow feedback, hy scales slow-to-fast forcing, and F
+    is the constant slow-variable forcing. Positive eps controls the fast
+    timescale relative to the slow dynamics.
+
+    A full state has shape (K + K*J,): K slow values followed by fast values
+    grouped by slow site. Fast values form one periodic ring across all groups.
     """
 
     K: int = 9
@@ -35,43 +38,55 @@ class MultiscaleLorenz96:
     eps: float = 2**-7
 
     def __post_init__(self):
-        for name, minimum in (("K", 4), ("J", 3)):
-            _validate_dimension(name, getattr(self, name), minimum)
-        for name in ("hx", "hy", "F", "eps"):
-            if not np.isfinite(getattr(self, name)):
-                raise ValueError(f"{name} must be finite")
-        if self.eps <= 0:
-            raise ValueError("eps must be positive")
+        _validate_integer([("K", self.K), ("J", self.J)])
+        # The slow advection stencil requires four distinct periodic sites
+        if self.K < 4:
+            raise ValueError("K must be >= 4")
+        if self.J < 3:
+            raise ValueError("J must be >= 3")
+        _validate_finite([("hx", self.hx), ("hy", self.hy), ("F", self.F), ("eps", self.eps)])
+        _validate_positive([("eps", self.eps)])
 
     @property
     def state_dimension(self) -> int:
+        """Total number of slow and fast variables in a full state."""
         return self.K * (1 + self.J)
 
     def split_state(self, state: Array) -> tuple[Array, Array]:
-        """Unpack a state (D,) or trajectory (D, N) into slow and fast arrays.
+        """Separate a full state or trajectory into slow and fast arrays.
 
-        Returns shapes (K,), (K, J) for a vector, or (K, N), (K, J, N)
-        for a trajectory. Fast entries use the same C order as rhs.
+        Input shape is (K + K*J,) or (K + K*J, N), where N is the sample count.
+        Returns shapes (K,) and (K, J) for a state, or (K, N) and (K, J, N)
+        for a trajectory. Fast-array axes are slow site, fast index, and time.
         """
+        _validate_real([("state", state)])
         state = np.asarray(state, dtype=float)
+        # Check the full channel count before reshaping fast values into site groups
         if state.ndim not in (1, 2) or state.shape[0] != self.state_dimension:
             raise ValueError(f"state must have shape ({self.state_dimension},) or ({self.state_dimension}, N)")
-        return state[:self.K], state[self.K:].reshape(self.K, self.J, *state.shape[1:])
+
+        return state[: self.K], state[self.K :].reshape(self.K, self.J, *state.shape[1:])
 
     def rhs(self, t: float, state: Array) -> Array:
-        """Evaluate B.1–B.3 on a flat full state."""
-        slow, fast = state[:self.K], state[self.K:]
+        """Return time derivatives for a full state of shape (K + K*J,).
+
+        The output preserves the input's slow-first, grouped-fast layout.
+        t is accepted for ODE solver compatibility; the dynamics are autonomous.
+        """
+        slow, fast = state[: self.K], state[self.K :]
+        # dx_k/dt = f_k(x) + (hx / J) * sum_{j=0}^{J-1} y_{k,j}
         ds = _slow_rhs(slow, self.F) + self.hx * fast.reshape(self.K, self.J).mean(axis=1)
-        df = (-np.roll(fast, -1) * (np.roll(fast, -2) - np.roll(fast, 1))
-              - fast + self.hy * np.repeat(slow, self.J)) / self.eps
+        # dy_q/dt = [-y_{q+1} * (y_{q+2} - y_{q-1}) - y_q + hy * x_{floor(q/J)}] / eps, with fast indices modulo K*J
+        df = (-np.roll(fast, -1) * (np.roll(fast, -2) - np.roll(fast, 1)) - fast + self.hy * np.repeat(slow, self.J)) / self.eps
         return np.concatenate((ds, df))
 
 
 @dataclass(frozen=True)
 class SingleScaleLorenz96:
-    """Reduced dynamics with a required, fixed callable fast-mean closure.
+    """Reduced Lorenz–96 dynamics for K slow variables using a fixed closure.
 
-    The closure maps a K-vector of slow values to a K-vector of fast means.
+    closure maps slow values of shape (K,) to predicted fast-group means of
+    the same shape. hx scales this feedback, and F is the constant forcing.
     Parameters of the eliminated fast dynamics belong to the supplied closure.
     """
 
@@ -81,22 +96,34 @@ class SingleScaleLorenz96:
     F: float = 10.0
 
     def __post_init__(self):
-        _validate_dimension("K", self.K, 4)
-        for name in ("hx", "F"):
-            if not np.isfinite(getattr(self, name)):
-                raise ValueError(f"{name} must be finite")
+        _validate_integer([("K", self.K)])
+        # The reduced model uses the same four-site slow advection stencil
+        if self.K < 4:
+            raise ValueError("K must be >= 4")
+        _validate_finite([("hx", self.hx), ("F", self.F)])
         if not callable(self.closure):
             raise TypeError("closure must be callable")
 
     @property
     def state_dimension(self) -> int:
+        """Number of slow variables in a reduced state."""
         return self.K
 
     def rhs(self, t: float, state: Array) -> Array:
-        """Evaluate (2.9); closure predicts fast means, before multiplying by hx."""
-        means = np.asarray(self.closure(state), dtype=float)
-        if means.shape != state.shape or not np.isfinite(means).all():
-            raise ValueError("closure must return finite values with the same shape as slow")
+        """Return time derivatives for a slow state of shape (K,).
+
+        Closure predictions are fast-group means, multiplied by hx here.
+        t is accepted for ODE solver compatibility; the dynamics are autonomous.
+        """
+        means = self.closure(state)
+        _validate_real([("closure output", means)])
+        means = np.asarray(means, dtype=float)
+        # Require one prediction per slow variable to prevent unintended broadcasting
+        if means.shape != state.shape:
+            raise ValueError("closure must return values with the same shape as slow")
+        _validate_finite([("closure output", means)])
+
+        # dx_k/dt = f_k(x) + hx * m_hat_k
         return _slow_rhs(state, self.F) + self.hx * means
 
 
@@ -105,18 +132,23 @@ def sample_initial_state(
     *,
     low: float = -5.0,
     high: float = 10.0,
-    seed: int | None = None,
+    seed: int | None = 2003,
 ) -> Array:
-    """Sample a state without integrating or evaluating a closure.
+    """Sample an initial state using a NumPy random seed.
 
     Slow entries are uniform on [low, high). For a multiscale model, each fast
-    group starts at its associated slow value, packed in C order. With the
-    same K and seed, both model types receive identical slow entries.
+    group starts at its associated slow value. Returns shape (K + K*J,) for
+    a multiscale model or (K,) for a single-scale model.
+
+    Matching K, bounds, and an explicit seed gives identical slow entries
+    for both model types. The default seed is 2003; seed=None uses nondeterministic initialization.
     """
     if not isinstance(model, (MultiscaleLorenz96, SingleScaleLorenz96)):
         raise TypeError("model must be a MultiscaleLorenz96 or SingleScaleLorenz96")
-    if not np.isfinite(low) or not np.isfinite(high) or low >= high:
-        raise ValueError("low and high must be finite, with low < high")
+    _validate_finite([("low", low), ("high", high)])
+    if low >= high:
+        raise ValueError("low must be less than high")
+
     slow = np.random.default_rng(seed).uniform(low, high, model.K)
     if isinstance(model, MultiscaleLorenz96):
         return np.concatenate((slow, np.repeat(slow, model.J)))

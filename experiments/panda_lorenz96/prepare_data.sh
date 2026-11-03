@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prepare windows from the four manifests created by collect_lorenz96_trajectory_paths.sh.
+# Prepare windows from the four manifests created by collect_trajectory_paths.sh.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -11,7 +11,7 @@ output_dir="outputs/panda_lorenz96/windows"
 
 for family in singlescale multiscale; do
     for split in training validation; do
-        "$python_bin" scripts/panda/prepare_data.py \
+        "$python_bin" scripts/panda_lorenz96/prepare_data.py \
             --manifest-path "$manifest_dir/${family}_${split}.json" \
             --context-length 512 \
             --prediction-length 128 \

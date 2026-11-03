@@ -1,4 +1,4 @@
-"""Independent Lorenz '96 equations, simulation, and local closure fitting.
+"""Lorenz–96 models, trajectory generation, simulation, and local closure fitting.
 
 Example (the caller chooses and composes the operations)::
 
@@ -13,8 +13,7 @@ Example (the caller chooses and composes the operations)::
         max_step=model.eps / 4,
     )
     slow, fast = model.split_state(training.state)
-    features, targets = sample_closure_training_data(slow, fast, seed=42)
-    closure = fit_closure(features, targets, seed=42)
+    closure = fit_closure(slow, fast, seed=42)
     reduced_model = SingleScaleLorenz96(closure=closure, K=model.K,
                                         hx=model.hx, F=model.F)
     reduced = simulate_ode(
@@ -25,17 +24,18 @@ Example (the caller chooses and composes the operations)::
         sample_dt=0.001,
     )
 
-Nothing runs or writes files automatically. Samples include both endpoints
-by default; endpoint=False excludes the final endpoint.
+Samples always include both endpoints.
+Specify sample_dt and exactly one of duration or n_samples; N samples span
+(N - 1) * sample_dt units of time.
 For either system, continue from the last saved state with
-initial_state=trajectory.state[:, -1] and t0=trajectory.time[-1]. With
-endpoint=False, that timestamp precedes the integration endpoint.
+initial_state=trajectory.state[:, -1] and t0=trajectory.time[-1].
 simulate_ode also accepts a general rhs(t, state).
 """
 
 from .model import MultiscaleLorenz96, SingleScaleLorenz96, sample_initial_state
 from .simulate import Trajectory, simulate_ode
-from .closure import GPClosure, fit_closure, sample_closure_training_data
-from .generate import generate_multiscale_trajectory
+from .closure import GPClosure, fit_closure
+from .generate import generate_multiscale_trajectory, generate_singlescale_trajectory
+from .downsample import downsample_trajectory
 
-__all__ = ["MultiscaleLorenz96", "SingleScaleLorenz96", "Trajectory", "simulate_ode", "sample_initial_state", "GPClosure", "fit_closure", "sample_closure_training_data", "generate_multiscale_trajectory"]
+__all__ = ["MultiscaleLorenz96", "SingleScaleLorenz96", "Trajectory", "simulate_ode", "sample_initial_state", "GPClosure", "fit_closure", "generate_multiscale_trajectory", "generate_singlescale_trajectory", "downsample_trajectory"]

@@ -1,11 +1,12 @@
 """Cache Panda windows from one JSON list of trajectory file paths.
 
 Example from the repository root:
-    python scripts/panda/prepare_data.py \
+    python scripts/panda_lorenz96/prepare_data.py \
         --manifest-path outputs/panda_lorenz96/trajectory_paths/multiscale_training.json \
         --output-dir outputs/panda_lorenz96/windows/multiscale_training
 
-Each input NPZ must contain time [samples] and state [channels, samples].
+Each input NPZ must contain time [samples] and slow_states [channels, samples].
+Use single-scale trajectories or downsampled multiscale slow-channel views.
 The cache contains windows.npy, a float32 array [windows, context + prediction,
 channels], and metadata.json with settings and source paths. Load the array with
 np.load(path, mmap_mode="r") and wrap it in PandaForecastDataset for training.
@@ -34,7 +35,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--context-length", type=int, default=512)
     parser.add_argument("--prediction-length", type=int, default=128)
     parser.add_argument("--stride", type=int, default=128, help="Window start spacing, in observation samples.")
-    parser.add_argument("--channels", type=int, nargs="+", help="Zero-based state rows in selection order; default: all.")
+    parser.add_argument("--channels", type=int, nargs="+", help="Zero-based slow-state rows in selection order; default: all.")
     args = parser.parse_args()
     for name in ("context_length", "prediction_length", "stride"):
         if getattr(args, name) <= 0:
@@ -55,7 +56,7 @@ def load_trajectories(manifest: Path) -> tuple[list[Trajectory], list[str]]:
     trajectories = []
     for path in paths:
         with np.load(path, allow_pickle=False) as archive:
-            trajectories.append(Trajectory(time=archive["time"], state=archive["state"]))
+            trajectories.append(Trajectory(time=archive["time"], state=archive["slow_states"]))
     return trajectories, [str(path) for path in paths]
 
 
